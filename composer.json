@@ -1,0 +1,16 @@
+{
+    "name": "bchristopher23/Ali-Express-Woo-Add-On",
+    "description": "",
+    "keywords": ["wordpress", "plugin"],
+    "homepage": "https://github.com/bchristopher23/Ali-Express-Woo-Add-On",
+    "authors": [
+      {
+        "name": "villatheme",
+        "homepage": "https://codecanyon.net/item/aliexpress-dropshipping-and-fulfillment-for-woocommerce/29457839"
+      }
+    ],
+    "type": "wordpress-plugin",
+    "require": {
+      "php": ">=5.6"
+    }
+  } 
