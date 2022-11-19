@@ -528,7 +528,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 	 * @return bool|WP_Error
 	 */
 	public function permissions_check( $request ) {
-		if ( ! wc_rest_check_post_permissions( 'product', 'create' ) ) {
+		if ( ! apply_filters( 'vi_wad_rest_check_product_create_permission', wc_rest_check_post_permissions( 'product', 'create' ) ) ) {
 			return new WP_Error( 'woocommerce_rest_cannot_create', esc_html__( 'Unauthorized', 'woocommerce-alidropship' ), array( 'status' => rest_authorization_required_code() ) );
 		}
 
@@ -543,7 +543,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 	public function permissions_check_read_product( $request ) {
 		$product_ids = $request->get_param( 'product_ids' );
 		$product_id  = isset( $product_ids['id'] ) ? $product_ids['id'] : '';
-		if ( ! wc_rest_check_post_permissions( 'product', 'read', $product_id ) ) {
+		if ( ! apply_filters( 'vi_wad_rest_check_product_read_permission', wc_rest_check_post_permissions( 'product', 'read', $product_id ) ) ) {
 			return new WP_Error( 'woocommerce_rest_cannot_read', esc_html__( 'Unauthorized', 'woocommerce-alidropship' ), array( 'status' => rest_authorization_required_code() ) );
 		}
 
@@ -558,7 +558,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 	public function permissions_check_edit_product( $request ) {
 		$product_ids = $request->get_param( 'product_ids' );
 		$product_id  = isset( $product_ids['id'] ) ? $product_ids['id'] : '';
-		if ( $product_id && ! wc_rest_check_post_permissions( 'product', 'edit', $product_id ) ) {
+		if ( $product_id && ! apply_filters( 'vi_wad_rest_check_product_edit_permission', wc_rest_check_post_permissions( 'product', 'edit', $product_id ) ) ) {
 			return new WP_Error( 'woocommerce_rest_cannot_edit', esc_html__( 'Unauthorized', 'woocommerce-alidropship' ), array( 'status' => rest_authorization_required_code() ) );
 		}
 
@@ -571,7 +571,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 	 * @return bool|WP_Error
 	 */
 	public function permissions_check_read_order( $request ) {
-		if ( ! wc_rest_check_post_permissions( 'shop_order', 'read', $request->get_param( 'order_id' ) ) ) {
+		if ( ! apply_filters( 'vi_wad_rest_check_shop_order_read_permission', wc_rest_check_post_permissions( 'shop_order', 'read', $request->get_param( 'order_id' ) ), $request->get_param( 'order_id' ) ) ) {
 			return new WP_Error( 'woocommerce_rest_cannot_read', esc_html__( 'Unauthorized', 'woocommerce-alidropship' ), array( 'status' => rest_authorization_required_code() ) );
 		}
 
@@ -647,7 +647,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 		/*check key*/
 		if ( $check_key ) {
 			$key = $request->get_param( 'key' );
-			if ( ! $key || $key != ( self::$settings->get_params( 'secret_key' ) ) ) {
+			if ( ! $key || $key !== self::$settings->get_params( 'secret_key' ) ) {
 				$result['message']      = esc_html__( 'Secret key does not match', 'woocommerce-alidropship' );
 				$result['message_type'] = 2;
 
@@ -747,7 +747,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 				}
 			} else {
 				if ( $get_data['message'] ) {
-					$result['message'] = $get_data['message'];
+					$result['message']      = $get_data['message'];
+					$result['message_type'] = 2;
 				} else {
 					$result['message']      = esc_html__( 'Can not retrieve data.', 'woocommerce-alidropship' );
 					$result['message_type'] = 'try_again';
@@ -1426,9 +1427,9 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 		$return_carrier = array();
 		if ( ! $tracking_logisticsType && $carrier_name ) {
 			$masked_shipping_companies = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_masked_shipping_companies();
-			$carrier_name_             = self::strtolower( trim( $carrier_name ) );
+			$carrier_name_             = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::strtolower( trim( $carrier_name ) );
 			foreach ( $masked_shipping_companies as $key => $value ) {
-				if ( self::strtolower( trim( $value['origin'] ) ) === $carrier_name_ ) {
+				if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::strtolower( trim( $value['origin'] ) ) === $carrier_name_ ) {
 					$tracking_logisticsType = $key;
 					break;
 				}
@@ -1487,9 +1488,9 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 								if ( ! $found ) {
 									self::$found_carriers['url'][] = $original_url;
 									if ( class_exists( 'VI_WOO_ORDERS_TRACKING_DATA' ) ) {
-										$orders_tracking_data = new VI_WOO_ORDERS_TRACKING_DATA();
+										$orders_tracking_data = VI_WOO_ORDERS_TRACKING_DATA::get_instance();
 									} elseif ( class_exists( 'VI_WOOCOMMERCE_ORDERS_TRACKING_DATA' ) ) {
-										$orders_tracking_data = new VI_WOOCOMMERCE_ORDERS_TRACKING_DATA();
+										$orders_tracking_data = VI_WOOCOMMERCE_ORDERS_TRACKING_DATA::get_instance();
 									}
 									if ( isset( $orders_tracking_data ) ) {
 										if ( ! $carrier_name ) {
@@ -1529,17 +1530,13 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 		return $return_carrier;
 	}
 
-	private static function strtolower( $str ) {
-		return function_exists( 'mb_strtolower' ) ? mb_strtolower( $str ) : strtolower( $str );
-	}
-
 	private static function get_carriers() {
 		if ( self::$orders_tracking_carriers === null ) {
 			if ( class_exists( 'VI_WOO_ORDERS_TRACKING_DATA' ) ) {
-				$orders_tracking_data = new VI_WOO_ORDERS_TRACKING_DATA();
+				$orders_tracking_data = VI_WOO_ORDERS_TRACKING_DATA::get_instance();
 				$carriers_array       = VI_WOO_ORDERS_TRACKING_DATA::shipping_carriers();
 			} elseif ( class_exists( 'VI_WOOCOMMERCE_ORDERS_TRACKING_DATA' ) ) {
-				$orders_tracking_data = new VI_WOOCOMMERCE_ORDERS_TRACKING_DATA();
+				$orders_tracking_data = VI_WOOCOMMERCE_ORDERS_TRACKING_DATA::get_instance();
 				$carriers_array       = VI_WOOCOMMERCE_ORDERS_TRACKING_DATA::shipping_carriers();
 			}
 			if ( isset( $orders_tracking_data, $carriers_array ) ) {
@@ -1600,69 +1597,47 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 	public function get_order_info( $order ) {
 		$result     = array();
 		$list_items = $order->get_items();
-		global $sitepress;
 		foreach ( $list_items as $item_id => $item ) {
 			if ( $item->get_meta( '_vi_wad_aliexpress_order_id' ) ) {
 				continue;
 			}
-			$data       = $item->get_data();
-			$product_id = $data['product_id'];
-			$product    = wc_get_product( $product_id );
+			$woo_product_id = $item->get_product_id();
+			$product        = wc_get_product( $woo_product_id );
 			if ( $product ) {
-				$wpml_product_id = '';
-				$wpml_product    = '';
-				if ( $sitepress ) {
-					$wpml_object_id = apply_filters(
-						'wpml_object_id', $product_id, 'product', false, $sitepress->get_default_language()
-					);
-					if ( $wpml_object_id != $product_id ) {
-						$wpml_product = wc_get_product( $wpml_object_id );
-						if ( $wpml_product ) {
-							$wpml_product_id = $wpml_object_id;
-						}
-					}
-				}
-				$vid = isset( $data['variation_id'] ) ? $data['variation_id'] : '';
-				$qty = $item->get_quantity() + $order->get_qty_refunded_for_item( $item_id );
-				if ( $qty > 0 ) {
+				$wpml_product_id  = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::wpml_get_original_object_id( $woo_product_id );
+				$woo_variation_id = $item->get_variation_id();
+				$quantity         = $item->get_quantity() + $order->get_qty_refunded_for_item( $item_id );
+				if ( $quantity > 0 ) {
 					if ( $wpml_product_id ) {
 						$ali_pid = get_post_meta( $wpml_product_id, '_vi_wad_aliexpress_product_id', true );
 					} else {
-						$ali_pid = get_post_meta( $product_id, '_vi_wad_aliexpress_product_id', true );
+						$ali_pid = get_post_meta( $woo_product_id, '_vi_wad_aliexpress_product_id', true );
 					}
 					if ( $ali_pid ) {
-						$title    = get_the_title( $product_id );
-						$ali_vid  = '';
-						$sku_attr = '';
-						if ( $vid ) {
-							$wpml_variation_id = '';
+						$title             = get_the_title( $woo_product_id );
+						$ali_vid           = '';
+						$sku_attr          = '';
+						$wpml_variation_id = '';
+						if ( $woo_variation_id ) {
 							if ( $wpml_product_id ) {
-								$wpml_object_id = apply_filters(
-									'wpml_object_id', $vid, 'product', false, $sitepress->get_default_language()
-								);
-								if ( $wpml_object_id != $vid ) {
-									$wpml_product = wc_get_product( $wpml_object_id );
-									if ( $wpml_product ) {
-										$wpml_variation_id = $wpml_object_id;
-									}
-								}
+								$wpml_variation_id = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::wpml_get_original_object_id( $woo_variation_id );
 							}
 							if ( $wpml_variation_id ) {
 								$title    = get_the_title( $wpml_variation_id );
 								$ali_vid  = get_post_meta( $wpml_variation_id, '_vi_wad_aliexpress_variation_id', true );
 								$sku_attr = get_post_meta( $wpml_variation_id, '_vi_wad_aliexpress_variation_attr', true );
 							} else {
-								$title    = get_the_title( $vid );
-								$ali_vid  = get_post_meta( $vid, '_vi_wad_aliexpress_variation_id', true );
-								$sku_attr = get_post_meta( $vid, '_vi_wad_aliexpress_variation_attr', true );
+								$title    = get_the_title( $woo_variation_id );
+								$ali_vid  = get_post_meta( $woo_variation_id, '_vi_wad_aliexpress_variation_id', true );
+								$sku_attr = get_post_meta( $woo_variation_id, '_vi_wad_aliexpress_variation_attr', true );
 							}
 						} elseif ( ! $product->is_type( 'variable' ) ) {
 							if ( $wpml_product_id ) {
 								$ali_vid  = get_post_meta( $wpml_product_id, '_vi_wad_aliexpress_variation_id', true );
 								$sku_attr = get_post_meta( $wpml_product_id, '_vi_wad_aliexpress_variation_attr', true );
 							} else {
-								$ali_vid  = get_post_meta( $product_id, '_vi_wad_aliexpress_variation_id', true );
-								$sku_attr = get_post_meta( $product_id, '_vi_wad_aliexpress_variation_attr', true );
+								$ali_vid  = get_post_meta( $woo_product_id, '_vi_wad_aliexpress_variation_id', true );
+								$sku_attr = get_post_meta( $woo_product_id, '_vi_wad_aliexpress_variation_attr', true );
 							}
 						}
 						$shipping_company = '';
@@ -1670,19 +1645,57 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 						if ( ! empty( $saved_shipping['company'] ) ) {
 							$shipping_company = $saved_shipping['company'];
 						} else {
-//						$shipping_info = get_post_meta( $product_id, '_vi_wad_shipping_info', true );
-//						if ( ! empty( $shipping_info['company'] ) ) {
-//							$shipping_company = $shipping_info['company'];
-//						}
+							if ( $woo_variation_id ) {
+								if ( $wpml_variation_id ) {
+									$ship_from = get_post_meta( $wpml_variation_id, '_vi_wad_aliexpress_variation_ship_from', true );
+								} else {
+									$ship_from = get_post_meta( $woo_variation_id, '_vi_wad_aliexpress_variation_ship_from', true );
+								}
+							} else {
+								if ( $wpml_product_id ) {
+									$ship_from = get_post_meta( $wpml_product_id, '_vi_wad_aliexpress_variation_ship_from', true );
+								} else {
+									$ship_from = get_post_meta( $woo_product_id, '_vi_wad_aliexpress_variation_ship_from', true );
+								}
+							}
+							$shipping_country = $order->get_shipping_country();
+							$state            = $city = '';
+							if ( ! $shipping_country ) {
+								$shipping_country = $order->get_billing_country();
+								if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $shipping_country ) ) {
+									$state = $order->get_billing_state();
+									$city  = $order->get_billing_city();
+								}
+							} else {
+								if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $shipping_country ) ) {
+									$state = $order->get_shipping_state();
+									$city  = $order->get_shipping_city();
+								}
+							}
+							$freights = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_ali_shipping_by_woo_id( $wpml_product_id ? $wpml_product_id : $woo_product_id, $shipping_country, $ship_from, $quantity, $state, $city );
+							if ( count( $freights ) && ! empty( $freights[0]['company'] ) ) {
+								$shipping_company = $freights[0]['company'];
+							}
+							$shipping_company = apply_filters( 'vi_wad_fallback_shipping_company_for_fulfillment', $shipping_company, $wpml_product_id ? $wpml_product_id : $woo_product_id, $freights, $shipping_country );
 						}
-						$result[] = array(
-							'productID'       => $ali_pid,
-							'skuID'           => $ali_vid,
-							'skuAttr'         => $sku_attr,
-							'quantity'        => $qty,
-							'title'           => $title,
-							'shippingCompany' => $shipping_company,
-						);
+						$item_exists = false;
+						foreach ( $result as &$re ) {
+							if ( $re['productID'] == $ali_pid && $re['skuID'] == $ali_vid && $re['skuAttr'] == $sku_attr ) {
+								$re['quantity'] += $quantity;
+								$item_exists    = true;
+								break;
+							}
+						}
+						if ( ! $item_exists ) {
+							$result[] = array(
+								'productID'       => $ali_pid,
+								'skuID'           => $ali_vid,
+								'skuAttr'         => $sku_attr,
+								'quantity'        => $quantity,
+								'title'           => $title,
+								'shippingCompany' => $shipping_company,
+							);
+						}
 					}
 				}
 			}
@@ -1751,19 +1764,16 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 			}
 		}
 		if ( $state_code ) {
-			$state = isset( $states[ $state_code ] ) ? $states[ $state_code ] : $state_code;
-		} else {
-			$state = $city;
-		}
-		$ali_states = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_state( $country );
-		if ( count( $ali_states ) ) {
-			$address_ = array();
-			if ( function_exists( 'mb_strtolower' ) ) {
-				$search      = mb_strtolower( $state );
+			$state      = isset( $states[ $state_code ] ) ? $states[ $state_code ] : $state_code;
+			$ali_states = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_state( $country );
+			if ( count( $ali_states ) ) {
+				$address_ = array();
+
+				$search      = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::strtolower( $state );
 				$search_1    = array( $search, remove_accents( $search ) );
 				$found_state = false;
 				foreach ( $ali_states['addressList'] as $key => $value ) {
-					if ( in_array( mb_strtolower( $value['n'] ), $search_1, true ) ) {
+					if ( in_array( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::strtolower( $value['n'] ), $search_1, true ) ) {
 						$found_state = $key;
 						$state       = $value['n'];
 						break;
@@ -1780,10 +1790,10 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 					if ( isset( $ali_states['addressList'][ $found_state ]['children'] ) && is_array( $ali_states['addressList'][ $found_state ]['children'] ) && count( $ali_states['addressList'][ $found_state ]['children'] ) ) {
 						$found_city = false;
 						if ( $city ) {
-							$search   = mb_strtolower( $city );
+							$search   = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::strtolower( $city );
 							$search_1 = array( $search, remove_accents( $search ) );
 							foreach ( $ali_states['addressList'][ $found_state ]['children'] as $key => $value ) {
-								if ( in_array( mb_strtolower( $value['n'] ), $search_1, true ) ) {
+								if ( in_array( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::strtolower( $value['n'] ), $search_1, true ) ) {
 									$found_city = $key;
 									$city       = $value['n'];
 									break;
@@ -1801,56 +1811,24 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 						$city = ucwords( remove_accents( $city ) );
 					}
 				}
+				if ( count( $address_ ) ) {
+					if ( $address1 ) {
+						$address1 = implode( ', ', array_merge( array( $address1 ), $address_ ) );
+					}
+					if ( $address2 ) {
+						$address2 = implode( ', ', array_merge( array( $address2 ), $address_ ) );
+					}
+				}
 			} else {
-				$search      = strtolower( $state );
-				$search_1    = array( $search, remove_accents( $search ) );
-				$found_state = false;
-				foreach ( $ali_states['addressList'] as $key => $value ) {
-					if ( in_array( strtolower( $value['n'] ), $search_1, true ) ) {
-						$found_state = $key;
-						$state       = $value['n'];
-						break;
-					}
-				}
-				if ( $found_state === false ) {
-					if ( array_search( 'Other', array_column( $ali_states['addressList'], 'n' ) ) !== false ) {
-						if ( $state_code ) {
-							array_push( $address_, $state );
-						}
-						$state = 'Other';
-					}
-				} elseif ( isset( $ali_states['addressList'][ $found_state ]['children'] ) && is_array( $ali_states['addressList'][ $found_state ]['children'] ) && count( $ali_states['addressList'][ $found_state ]['children'] ) ) {
-					$found_city = false;
-					if ( $city ) {
-						$search   = strtolower( $city );
-						$search_1 = array( $search, remove_accents( $search ) );
-						foreach ( $ali_states['addressList'][ $found_state ]['children'] as $key => $value ) {
-							if ( in_array( strtolower( $value['n'] ), $search_1, true ) ) {
-								$found_city = $key;
-								$city       = $value['n'];
-								break;
-							}
-						}
-					}
-					if ( $found_city === false ) {
-						if ( array_search( 'Other', array_column( $ali_states['addressList'][ $found_state ]['children'], 'n' ) ) !== false ) {
-							array_push( $address_, $city );
-							$city = 'Other';
-						}
-					}
-				}
-			}
-			if ( count( $address_ ) ) {
-				if ( $address1 ) {
-					$address1 = implode( ', ', array_merge( array( $address1 ), $address_ ) );
-				}
-				if ( $address2 ) {
-					$address2 = implode( ', ', array_merge( array( $address2 ), $address_ ) );
-				}
+				$state = isset( $states[ $state_code ] ) ? remove_accents( $states[ $state_code ] ) : ( self::country_support_city_other( $country ) ? 'Other' : $city );
+				$city  = ucwords( remove_accents( $city ) );
 			}
 		} else {
-			$state = isset( $states[ $state_code ] ) ? remove_accents( $states[ $state_code ] ) : ( self::country_support_city_other( $country ) ? 'Other' : $city );
-			$city  = ucwords( remove_accents( $city ) );
+			if ( self::country_support_city_other( $country ) ) {
+				$state = 'Other';
+			} else {
+				$state = $city;
+			}
 		}
 		$result = array(
 			'name'         => remove_accents( $name ),
@@ -1978,6 +1956,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 		return in_array( $country_code, array(
 			'BR',
 			'CL',
+			'CZ',
 			'FR',
 			'IN',
 			'ID',
@@ -1994,6 +1973,23 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API {
 			'UA',
 			'UK',
 			'US',
+			'TH',
+			'PE',
+			'DE',
+			'NG',
+			'CO',
+			'JP',
+			'MA',
+			'AE',
+			'LK',
+			'VN',
+			'PK',
+			'AU',
+			'AT',
+			'MY',
+			'IL',
+			'PT',
+			'BE',
 		) );
 	}
 

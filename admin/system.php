@@ -10,6 +10,15 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_System {
 
 	public function __construct() {
 		add_action( 'admin_menu', array( $this, 'menu_page' ), 20 );
+		add_action( 'admin_enqueue_scripts', array( $this, 'admin_enqueue_scripts' ) );
+	}
+
+	public function admin_enqueue_scripts() {
+		$page = isset( $_REQUEST['page'] ) ? $_REQUEST['page'] : '';
+		global $pagenow;
+		if ( $pagenow === 'admin.php' && $page === 'woocommerce-alidropship-status' ) {
+			VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings::enqueue_3rd_library( array( 'button', 'icon' ) );
+		}
 	}
 
 	public function page_callback() {
@@ -19,19 +28,31 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_System {
             <table cellspacing="0" id="status" class="widefat">
                 <tbody>
                 <tr>
-                    <td data-export-label="<?php esc_html_e( 'PHP Time Limit', 'woocommerce-alidropship' ) ?>"><?php esc_html_e( 'PHP Max Execution Time', 'woocommerce-alidropship' ) ?></td>
+                    <td><?php esc_html_e( 'PHP Max Execution Time', 'woocommerce-alidropship' ) ?></td>
                     <td><?php echo ini_get( 'max_execution_time' ); ?></td>
                     <td><?php esc_html_e( 'Should be greater than 100', 'woocommerce-alidropship' ) ?></td>
                 </tr>
                 <tr>
-                    <td data-export-label="<?php esc_html_e( 'PHP Max Input Vars', 'woocommerce-alidropship' ) ?>"><?php esc_html_e( 'PHP Max Input Vars', 'woocommerce-alidropship' ) ?></td>
+                    <td><?php esc_html_e( 'PHP Max Input Vars', 'woocommerce-alidropship' ) ?></td>
                     <td><?php echo ini_get( 'max_input_vars' ); ?></td>
                     <td><?php esc_html_e( 'Should be greater than 10000', 'woocommerce-alidropship' ) ?></td>
                 </tr>
                 <tr>
-                    <td data-export-label="<?php esc_html_e( 'Memory Limit', 'woocommerce-alidropship' ) ?>"><?php esc_html_e( 'Memory Limit', 'woocommerce-alidropship' ) ?></td>
+                    <td><?php esc_html_e( 'Memory Limit', 'woocommerce-alidropship' ) ?></td>
                     <td><?php echo ini_get( 'memory_limit' ); ?></td>
                     <td><?php esc_html_e( 'Should be greater than 128MB', 'woocommerce-alidropship' ) ?></td>
+                </tr>
+                <tr>
+                    <td><?php esc_html_e( 'WooCommerce AliExpress Dropshipping Extension installed and active', 'woocommerce-alidropship' ) ?></td>
+                    <td>
+                        <i class="red cancel icon <?php echo esc_attr( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::set( 'chrome-extension-active' ) ) ?>"></i>
+                        <a target="_blank" href="https://downloads.villatheme.com/?download=alidropship-extension"
+                           title="<?php esc_attr_e( 'You have to install the chrome extension to import products from AliExpress', 'woocommerce-alidropship' ) ?>"
+                           class="vi-ui positive button labeled icon mini <?php echo esc_attr( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::set( 'download-chrome-extension' ) ) ?>"><i
+                                    class="external icon"></i><?php esc_html_e( 'Install Extension', 'woocommerce-alidropship' ) ?>
+                        </a>
+                    </td>
+                    <td><?php esc_html_e( '*Required to be able to import AliExpress products', 'woocommerce-alidropship' ) ?></td>
                 </tr>
                 </tbody>
             </table>

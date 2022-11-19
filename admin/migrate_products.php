@@ -47,20 +47,27 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 			wp_die();
 		}
 		vi_wad_set_time_limit();
-		$step                = isset( $_POST['step'] ) ? sanitize_text_field( $_POST['step'] ) : '';
-		$product_source      = isset( $_POST['product_source'] ) ? sanitize_text_field( $_POST['product_source'] ) : '';
-		$product_source_meta = isset( $_POST['product_source_meta'] ) ? sanitize_text_field( $_POST['product_source_meta'] ) : '';
-		$product_categories  = isset( $_POST['product_categories'] ) ? wc_clean( $_POST['product_categories'] ) : array();
-		$exclude_categories  = isset( $_POST['exclude_categories'] ) ? wc_clean( $_POST['exclude_categories'] ) : array();
-		$response            = array(
+		$step                  = isset( $_POST['step'] ) ? sanitize_text_field( $_POST['step'] ) : '';
+		$product_source        = isset( $_POST['product_source'] ) ? sanitize_text_field( $_POST['product_source'] ) : '';
+		$product_source_meta   = isset( $_POST['product_source_meta'] ) ? sanitize_text_field( $_POST['product_source_meta'] ) : '';
+		$attribute_source_meta = isset( $_POST['attribute_meta'] ) ? sanitize_text_field( $_POST['attribute_meta'] ) : '';
+		$product_categories    = isset( $_POST['product_categories'] ) ? wc_clean( $_POST['product_categories'] ) : array();
+		$exclude_categories    = isset( $_POST['exclude_categories'] ) ? wc_clean( $_POST['exclude_categories'] ) : array();
+		$response              = array(
 			'status'  => 'error',
 			'message' => '',
 			'stop'    => '',
 		);
-		$meta_key            = '';
+		$meta_key              = '';
+		$attribute_meta        = '';
 		switch ( $product_source ) {
 			case 'ali2woo':
-				$meta_key = '_a2w_external_id';
+				$meta_key       = '_a2w_external_id';
+				$attribute_meta = '_aliexpress_sku_props';
+				break;
+			case 'alidropship_woo':
+				$meta_key       = '_sku';
+				$attribute_meta = 'adswSKU';
 				break;
 			default:
 				if ( ! in_array( $product_source_meta, array(
@@ -95,7 +102,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 					'_thumbnail_id',
 				) )
 				) {
-					$meta_key = $product_source_meta;
+					$meta_key       = $product_source_meta;
+					$attribute_meta = $attribute_source_meta;
 				}
 		}
 		if ( ! $meta_key ) {
@@ -103,11 +111,12 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 			wp_send_json( $response );
 		}
 		if ( $step === 'migrate' ) {
-			$access_token = self::$settings->get_params( 'access_token' );
-			$page         = isset( $_POST['page'] ) ? absint( sanitize_text_field( $_POST['page'] ) ) : 1;
-			$max_page     = isset( $_POST['max_page'] ) ? absint( sanitize_text_field( $_POST['max_page'] ) ) : 1;
-			$per_page     = $access_token ? 20 : 1;
-			$args         = array(
+			$access_token     = self::$settings->get_params( 'access_token' );
+			$use_access_token = $access_token && ! get_transient( 'vi_wad_migrate_using_direct_request' );
+			$page             = isset( $_POST['page'] ) ? absint( sanitize_text_field( $_POST['page'] ) ) : 1;
+			$max_page         = isset( $_POST['max_page'] ) ? absint( sanitize_text_field( $_POST['max_page'] ) ) : 1;
+			$per_page         = $use_access_token ? 20 : 1;
+			$args             = array(
 				'post_type'      => 'product',
 				'posts_per_page' => $per_page,
 				'paged'          => 1,
@@ -140,7 +149,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 			$the_query = new WP_Query( $args );
 			if ( $the_query->have_posts() ) {
 				$woo_ids = $the_query->posts;
-				if ( $access_token && $the_query->post_count > 1 ) {
+				if ( $use_access_token && $the_query->post_count > 1 ) {
 					vi_wad_set_time_limit();
 					$public_params = array(
 						'app_key'     => VI_WOOCOMMERCE_ALIDROPSHIP_APP_KEY,
@@ -170,7 +179,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 						if ( $get_sign['status'] === 'success' ) {
 							$public_params['sign']      = $get_sign['data']['data'];
 							$public_params['timestamp'] = date( 'Y-m-d H:i:s', $get_sign['data']['timestamp'] );
-							$url                        = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::ali_ds_get_url( true );
+							$url                        = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::ali_ds_get_url( true, ! self::$settings->get_params( 'update_product_http_only' ) );
 							$url                        = add_query_arg( array_map( 'urlencode', $public_params ), $url );
 							$separator                  = urlencode( '{villatheme}' );
 							add_filter( 'http_request_timeout', array(
@@ -202,11 +211,11 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 										if ( isset( $data[ $res_key ] ) ) {
 											$product_sku = $params[ $key ]['product_id'];
 											if ( isset( $data[ $res_key ]['rsp_code'] ) && $data[ $res_key ]['rsp_code'] == 200 ) {
-												self::handle_product( $product_sku, $data[ $res_key ]['result'], $woo_id );
+												self::handle_product( $product_sku, $data[ $res_key ]['result'], $woo_id, $attribute_meta );
 											} else {
 												if ( isset( $data[ $res_key ]['rsp_code'] ) ) {
 													if ( $data[ $res_key ]['rsp_code'] == 404 ) {
-														self::handle_product( $product_sku, '', $woo_id );
+														self::handle_product( $product_sku, '', $woo_id, $attribute_meta );
 													} elseif ( $data[ $res_key ]['rsp_code'] == 10004000 ) {
 														self::log( "{$log}This product is no longer available" );
 													}
@@ -225,14 +234,16 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 								self::log( "{$request->get_error_message()}, " . json_encode( $woo_ids ) );
 							}
 						} else {
+							set_transient( 'vi_wad_migrate_using_direct_request', time(), DAY_IN_SECONDS );
 							$response['message'] = $get_sign['data'];
+							$response['status']  = 'retry';
 							self::log( "{$get_sign['code']} - {$get_sign['data']}" );
 							wp_send_json( $response );
 						}
 					}
 				} else {
 					foreach ( $woo_ids as $woo_id ) {
-						self::handle_product( get_post_meta( $woo_id, $meta_key, true ), '', $woo_id );
+						self::handle_product( get_post_meta( $woo_id, $meta_key, true ), '', $woo_id, $attribute_meta );
 					}
 				}
 			}
@@ -342,7 +353,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 		wp_send_json( $response );
 	}
 
-	private static function handle_product( $product_sku, $product_data, $woo_id ) {
+	private static function handle_product( $product_sku, $product_data, $woo_id, $attribute_meta = '' ) {
 		$view_url  = admin_url( "post.php?post={$woo_id}&action=edit" );
 		$log       = "Product <a href='{$view_url}' target='_blank'>#{$woo_id}</a>: ";
 		$log_level = WC_Log_Levels::INFO;
@@ -370,14 +381,14 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 						$is_simple = false;
 					}
 					$import = false;
-					if ( self::$settings->get_params( 'migration_link_only' ) ) {
+					if ( self::$settings->get_params( 'migration_link_only' ) && $attribute_meta ) {
 						$product = wc_get_product( $woo_id );
 						if ( $product->is_type( 'variable' ) ) {
 							$children = $product->get_children();
 							if ( ! $is_simple ) {
 								$mapped_variations = array();
 								foreach ( $children as $child ) {
-									$sku_props = get_post_meta( $child, '_aliexpress_sku_props', true );
+									$sku_props = get_post_meta( $child, $attribute_meta, true );
 									if ( $sku_props ) {
 										$search = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::search_sku_attr( $sku_props, array_column( $variations, 'skuAttr' ) );
 										if ( $search !== false ) {
@@ -401,7 +412,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
 							}
 						} else {
 							if ( ! $is_simple ) {
-								$sku_props = get_post_meta( $woo_id, '_aliexpress_sku_props', true );
+								$sku_props = get_post_meta( $woo_id, $attribute_meta, true );
 								if ( $sku_props ) {
 									$search = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::search_sku_attr( $sku_props, array_column( $variations, 'skuAttr' ) );
 									if ( $search !== false ) {
@@ -461,7 +472,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
             <div class="vi-ui message positive">
                 <ul class="list">
                     <li><?php esc_html_e( 'Scan for AliExpress products imported by other plugins', 'woocommerce-alidropship' ); ?></li>
-                    <li><?php esc_html_e( 'Successfully migrated products will be added to Import list with "Map existing Woo product" field automatically and correctly selected', 'woocommerce-alidropship' ); ?></li>
+                    <li><?php esc_html_e( 'Successfully migrated products will be added to Import list with "Link existing Woo product" field automatically and correctly selected', 'woocommerce-alidropship' ); ?></li>
                     <li><?php printf( esc_html__( 'For details of migration, please go to %s', 'woocommerce-alidropship' ), '<a target="_blank" href="' . esc_url( $log_page ) . '">' . esc_html( $log_page ) . '</a>' ); ?></li>
                 </ul>
             </div>
@@ -502,6 +513,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
                                             id="<?php echo esc_attr( self::set( 'product-source' ) ) ?>"
                                             class="<?php echo esc_attr( self::set( 'product-source' ) ) ?> vi-ui dropdown">
                                         <option value="ali2woo"><?php esc_html_e( 'Ali2Woo', 'woocommerce-alidropship' ) ?></option>
+                                        <option value="alidropship_woo"><?php esc_html_e( 'AliDropship Woo', 'woocommerce-alidropship' ) ?></option>
                                         <option value="other"><?php esc_html_e( 'Other', 'woocommerce-alidropship' ) ?></option>
                                     </select>
                                     <p class="vi-ui fluid input">
@@ -511,6 +523,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Migrate_Products {
                                                placeholder="<?php esc_attr_e( 'Please enter the post meta key that the other plugin uses to store the AliExpress product ID', 'woocommerce-alidropship' ) ?>"
                                                value="">
                                     </p>
+                                    <p><?php esc_html_e( 'If you choose to migrate from AliDropship Woo plugin, our plugin will scan AliExpress product IDs by _sku meta key so the scan results may not be as expected. However, they will be validated while migrating so if SKU of a product is an actual AliExpress product ID, it will be migrated properly.', 'woocommerce-alidropship' ) ?></p>
                                 </td>
                             </tr>
                             <tr>

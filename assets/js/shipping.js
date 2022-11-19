@@ -1,8 +1,21 @@
 jQuery(document).ready(function ($) {
     'use strict';
+    $(document).on('change', '[name="billing_city"],[name="billing_state"]', function () {
+        if (vi_wad_shipping.countries_supported_shipping_by_province_city.indexOf($('[name="billing_country"]').val()) > -1) {
+            $(document.body).trigger('update_checkout');
+        }
+    });
+    $(document).on('change', '[name="shipping_city"],[name="shipping_state"]', function () {
+        if ($('[name="ship_to_different_address"]').prop('checked')) {
+            if (vi_wad_shipping.countries_supported_shipping_by_province_city.indexOf($('[name="shipping_country"]').val()) > -1) {
+                $(document.body).trigger('update_checkout');
+            }
+        }
+    });
+    /*Update cart/checkout when item shipping company changes*/
     $(document).on('change', '.vi-wad-cart-item-shipping-container .vi-wad-item-shipping-select', function () {
         /*Update checkout*/
-        $(document.body).trigger('update_checkout');
+        jQuery(document.body).trigger('update_checkout');//Do not change jQuery to $ here, weird but for some themes it only works if using exact jQuery to trigger update_checkout
         /*Update cart*/
         let $update_cart = $('[name="update_cart"]');
         if ($update_cart.length > 0) {

@@ -686,3 +686,6 @@ a.vi-wad-view-item-on-imported-page {
         padding-right: 0;
     }
 }
+.rtl .vi-wad-button-bulk-place-order-container{
+    float: right;
+}

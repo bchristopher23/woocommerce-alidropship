@@ -372,7 +372,7 @@ if ( ! class_exists( 'VillaTheme_Support_Pro' ) ) {
 			$warning = 'return confirm("VillaTheme toolbar helps you access all VillaTheme items quickly, do you want to hide it anyway?")';
 			$wp_admin_bar->add_node( array(
 				'id'     => 'villatheme_hide_toolbar',
-				'title'  => '<span class="dashicons dashicons-dismiss"></span><span class="villatheme-hide-toolbar-button-title">Hide VillaTheme toolbar</span>',
+				'title'  => '<span style="font-family:dashicons" class="dashicons dashicons-dismiss"></span><span class="villatheme-hide-toolbar-button-title">Hide VillaTheme toolbar</span>',
 				'parent' => 'villatheme',
 				'href'   => add_query_arg( array( '_villatheme_nonce' => wp_create_nonce( 'villatheme_hide_toolbar' ) ) ),
 				'meta'   => array(

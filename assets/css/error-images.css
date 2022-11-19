@@ -84,3 +84,7 @@ form p.search-box {
         justify-content: center;
     }
 }
+/*RTL*/
+.rtl .vi-wad-button-all-container{
+    float: right;
+}

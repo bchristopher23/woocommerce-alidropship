@@ -15,6 +15,10 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 			add_filter( 'wp_count_posts', array( $this, 'wp_count_posts' ), 10, 3 );
 			add_filter( 'vi_wad_admin_sub_menu_capability', array( $this, 'vi_wad_admin_sub_menu_capability' ), 10, 2 );
 			add_filter( 'vi_wad_admin_menu_capability', array( $this, 'vi_wad_admin_menu_capability' ), 10, 2 );
+			add_filter( 'vi_wad_admin_access_full_settings_capability', array(
+				$this,
+				'vi_wad_admin_access_full_settings_capability'
+			) );
 			/*Show Import list, Imported and ALD settings in the seller dashboard*/
 			add_filter( 'dokan_get_dashboard_nav', array( $this, 'dokan_get_dashboard_nav' ) );
 			add_filter( 'dokan_query_var_filter', array( $this, 'dokan_query_var_filter' ) );
@@ -61,6 +65,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 			add_action( 'parse_request', array( $this, 'maybe_change_vendor_role' ), - 1 );
 			add_action( 'parse_request', array( $this, 'maybe_restore_vendor_role' ), 1 );
 			add_filter( 'vi_wad_auth_granted_url', array( $this, 'vi_wad_auth_granted_url' ) );
+			add_filter( 'vi_wad_import_list_product_data', array( $this, 'vi_wad_import_list_product_data' ), 10, 2 );
 
 			/*Apply pricing rules by each vendor even sync is run by admin*/
 			add_action( 'vi_wad_before_sync_product', array( $this, 'before_sync_product' ) );
@@ -87,6 +92,47 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 				'dokan_product_after_variable_attributes'
 			), 10, 3 );
 		}
+		add_filter( 'vi_wad_rest_check_product_create_permission', array(
+			$this,
+			'vi_wad_rest_check_product_permission'
+		) );
+		add_filter( 'vi_wad_rest_check_product_edit_permission', array(
+			$this,
+			'vi_wad_rest_check_product_permission'
+		) );
+	}
+
+	/**
+	 * Do not allow vendors to import/sync ALD products anymore if Dokan compatible option is disabled
+	 *
+	 * @param $allow
+	 *
+	 * @return bool
+	 */
+	public function vi_wad_rest_check_product_permission( $allow ) {
+		if ( class_exists( 'WeDevs_Dokan' ) && ! current_user_can( 'manage_woocommerce' ) && ! self::$settings->get_params( 'restrict_products_by_vendor' ) ) {
+			$allow = false;
+		}
+
+		return $allow;
+	}
+
+	/**
+	 * Status of products imported by vendors should be the same as "New Product Status" option in dokan(pro) settings
+	 *
+	 * @param $product_data
+	 * @param $original_product_data
+	 *
+	 * @return mixed
+	 */
+	public function vi_wad_import_list_product_data( $product_data, $original_product_data ) {
+		if ( self::is_vendor_active() ) {
+			if ( class_exists( 'Dokan_Pro' ) ) {
+				$product_data['status'] = dokan_get_option( 'product_status', 'dokan_selling' );
+			}
+		}
+
+		return $product_data;
 	}
 
 	public function tags_allow_addition( $allow ) {
@@ -371,7 +417,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 						'wad_format_price_rules_test',
 						'wad_search_product',
 						'wad_search_cate',
-						'wad_search_tags'
+						'wad_search_tags',
+						'wad_get_custom_rule_html',
 					) ) ) {
 						$verify = true;
 					}
@@ -550,11 +597,14 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 			if ( ! is_array( $this->params ) ) {
 				$this->params = array();
 			}
-			$default = self::$settings->get_product_params();
+			$default = self::get_vendor_default_params();
+
 			foreach ( $default as $key => $value ) {
 				$default[ $key ] = $args[ $key ];
 			}
-
+			if ( class_exists( 'Dokan_Pro' ) ) {
+				$default['product_status'] = dokan_get_option( 'product_status', 'dokan_selling' );
+			}
 			$this->params = wp_parse_args( $this->params, $default );
 		}
 		if ( ! $name ) {
@@ -577,6 +627,26 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 		}
 	}
 
+	private static function get_vendor_default_params() {
+		$default = wp_parse_args( self::$settings->get_product_params(), self::$settings->get_product_sync_params() );
+		foreach (
+			array(
+				'update_product_auto',
+				'update_product_interval',
+				'update_product_hour',
+				'update_product_minute',
+				'update_product_second',
+				'update_product_http_only',
+				'received_email',
+				'send_email_if',
+			) as $key
+		) {
+			unset( $default[ $key ] );
+		}
+
+		return $default;
+	}
+
 	/**
 	 * Enqueue extra scripts if is vendor
 	 */
@@ -584,6 +654,13 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 		if ( self::is_ald_vendor_page() ) {
 			wp_enqueue_script( 'woocommerce-alidropship-vendor', VI_WOOCOMMERCE_ALIDROPSHIP_JS . 'ald-vendor.js', array( 'jquery' ), VI_WOOCOMMERCE_ALIDROPSHIP_VERSION );
 			wp_enqueue_style( 'woocommerce-alidropship-vendor', VI_WOOCOMMERCE_ALIDROPSHIP_CSS . 'ald-vendor.css', '', VI_WOOCOMMERCE_ALIDROPSHIP_VERSION );
+			if ( class_exists( 'Dokan_Pro' ) ) {
+				$css = '.vi-wad-product-status-container,
+.field.vi-wad-import-data-status-container {
+    display: none;
+}';
+				wp_add_inline_style( 'woocommerce-alidropship-vendor', $css );
+			}
 			/*Query monitor causes js error here so dequeue it*/
 			wp_dequeue_script( 'query-monitor' );
 		}
@@ -668,7 +745,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 	public function save_user_settings() {
 		if ( self::is_ald_vendor_page() && self::is_vendor_active() && isset( $_POST['_wooaliexpressdropship_nonce'] ) && wp_verify_nonce( sanitize_text_field( $_POST['_wooaliexpressdropship_nonce'] ), 'wooaliexpressdropship_save_settings_vendor' ) ) {
 			$user_id       = get_current_user_id();
-			$user_settings = self::$settings->get_product_params();
+			$user_settings = self::get_vendor_default_params();
 			$params        = self::$settings->get_params();
 			foreach ( $user_settings as $key => $arg ) {
 				if ( isset( $_POST[ 'wad_' . $key ] ) ) {
@@ -684,6 +761,15 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 						$user_settings[ $key ] = '';
 					}
 				}
+			}
+			/*Status should be the same as "New Product Status" in dokan settings*/
+			if ( class_exists( 'Dokan_Pro' ) ) {
+				$user_settings['product_status'] = dokan_get_option( 'product_status', 'dokan_selling' );
+			}
+			/*Adjust custom rules*/
+			$user_settings['update_product_custom_rules'] = array_values( $user_settings['update_product_custom_rules'] );
+			foreach ( $user_settings['update_product_custom_rules'] as &$custom_rule ) {
+				$custom_rule = array_merge( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_default_custom_rules(), $custom_rule );
 			}
 			/*Format price rules*/
 			$format_price_rules = array();
@@ -719,7 +805,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 	 */
 	public function admin_head() {
 		if ( self::is_ald_vendor_page( 'woocommerce-alidropship' ) && self::is_vendor_active() ) {
-		    remove_all_actions('villatheme_support_woocommerce-alidropship');
+			remove_all_actions( 'villatheme_support_woocommerce-alidropship' );
 			?>
             <div class="wp-core-ui woocommerce-alidropship-vendor">
 				<?php
@@ -776,8 +862,23 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 	 * @return string
 	 */
 	public function vi_wad_admin_menu_capability( $capability, $menu_slug ) {
-		if ( current_user_can( 'dokan_edit_product' ) && $menu_slug === 'woocommerce-alidropship' ) {
+		if ( self::is_ald_vendor_page( $menu_slug ) && current_user_can( 'dokan_edit_product' ) && $menu_slug === 'woocommerce-alidropship' ) {
 			$capability = 'dokan_edit_product';
+		}
+
+		return $capability;
+	}
+
+	/**
+	 * Vendors are not allowed to access all settings
+	 *
+	 * @param $capability
+	 *
+	 * @return string
+	 */
+	public function vi_wad_admin_access_full_settings_capability( $capability ) {
+		if ( current_user_can( 'dokan_edit_product' ) ) {
+			$capability = 'manage_options';
 		}
 
 		return $capability;
@@ -1025,7 +1126,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Vendor {
 			}
 			$vendor = dokan()->vendor->get( $id );
 
-			return $vendor->is_enabled();
+			return apply_filters( 'vi_wad_is_vendor_active', $vendor->is_enabled(), $vendor, $id );
 		}
 
 		return $active;

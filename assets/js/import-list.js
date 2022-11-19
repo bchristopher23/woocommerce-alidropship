@@ -19,9 +19,9 @@ jQuery(document).ready(function ($) {
     $('.vi-ui.accordion').vi_accordion('refresh');
     $('.vi-ui.checkbox').checkbox();
     $('.ui-sortable').sortable();
-    $('select.vi-ui.dropdown').not('.vi-wad-accordion-bulk-actions,.vi-wad-modal-popup-set-shipping-class-select,.vi-wad-import-data-shipping-class,.vi-wad-import-data-tags,.vi-wad-modal-popup-set-tags-select').dropdown();
+    $('select.vi-ui.dropdown').not('.vi-wad-accordion-bulk-actions,.vi-wad-modal-popup-set-shipping-class-select,.vi-wad-import-data-shipping-class,.vi-wad-import-data-tags,.vi-wad-modal-popup-set-tags-select,.vi-wad-show_product_video_tab').dropdown();
     $('.vi-wad-accordion-bulk-actions').dropdown({placeholder: 'auto'});
-    $('.vi-wad-modal-popup-set-shipping-class-select,.vi-wad-import-data-shipping-class').dropdown({placeholder: ''});
+    $('.vi-wad-modal-popup-set-shipping-class-select,.vi-wad-import-data-shipping-class,.vi-wad-show_product_video_tab').dropdown({placeholder: ''});
     $('.vi-wad-import-data-tags,.vi-wad-modal-popup-set-tags-select').dropdown({allowAdditions: vi_wad_import_list_params.tags_allow_addition});
     $('.vi-wad-button-view-and-edit').on('click', function (e) {
         e.stopPropagation();
@@ -568,13 +568,16 @@ jQuery(document).ready(function ($) {
     $('.vi-wad-override-product-options-override-keep-product').on('change', function () {
         let $button = $(this),
             $message = $button.closest('.vi-wad-override-product-options-container').find('.vi-wad-override-product-remove-warning'),
+            $override_link_only = $('.vi-wad-override-product-options-content-body-row-override-link-only'),
             $override_find_in_orders = $('.vi-wad-override-product-options-content-body-row-override-find-in-orders');
         if ($button.prop('checked')) {
             $message.fadeOut(100);
             $override_find_in_orders.hide();
+            $override_link_only.show();
         } else {
             $message.fadeIn(100);
             $override_find_in_orders.show();
+            $override_link_only.hide();
         }
     }).trigger('change');
     $('.vi-wad-override-product-options-button-override').on('click', function () {
@@ -639,6 +642,7 @@ jQuery(document).ready(function ($) {
                 replace_items: replace_items,
                 found_items: found_items,
                 override_keep_product: $('.vi-wad-override-product-options-override-keep-product').prop('checked') ? 1 : 0,
+                override_link_only: $('.vi-wad-override-product-options-override-link-only').prop('checked') ? 1 : 0,
                 override_title: $('.vi-wad-override-product-options-override-title').prop('checked') ? 1 : 0,
                 override_images: $('.vi-wad-override-product-options-override-images').prop('checked') ? 1 : 0,
                 override_description: $('.vi-wad-override-product-options-override-description').prop('checked') ? 1 : 0,
@@ -1068,6 +1072,7 @@ jQuery(document).ready(function ($) {
         $overlay.removeClass('vi-wad-hidden');
         let product_id = $button.data('product_id');
         let product_index = $button.data('product_index');
+        let from_tab = $button.closest('.vi-ui.tab').data('tab_name');
         $button.addClass('loading');
         $.ajax({
             url: vi_wad_import_list_params.url,
@@ -1078,14 +1083,26 @@ jQuery(document).ready(function ($) {
                 _vi_wad_ajax_nonce: _vi_wad_ajax_nonce,
                 product_id: product_id,
                 product_index: product_index,
+                from_tab: from_tab,
             },
             success: function (response) {
-                if (response.status === 'success' && response.data) {
-                    $button.closest('.vi-wad-variations-tab').find('.vi-wad-table-fix-head').html(response.data).find('.vi-ui.dropdown').dropdown({
-                        fullTextSearch: true,
-                        forceSelection: false,
-                        selectOnKeydown: false
-                    });
+                if (response.status === 'success') {
+                    switch (from_tab) {
+                        case 'attributes':
+                            $button.closest('.vi-wad-attributes-tab').find('.vi-wad-attributes-table-body').html(response.attributes_tab);
+                            $container.find('.vi-wad-variations-tab-loaded').removeClass('vi-wad-variations-tab-loaded');
+                            break;
+                        case 'variations':
+                            $container.find('.vi-wad-attributes-tab').find('.vi-wad-attributes-table-body').html(response.attributes_tab);
+                            $button.closest('.vi-wad-variations-tab').find('.vi-wad-table-fix-head').html(response.variations_tab).find('.vi-ui.dropdown').dropdown({
+                                fullTextSearch: true,
+                                forceSelection: false,
+                                selectOnKeydown: false
+                            });
+                            break;
+                    }
+                }else{
+                    villatheme_admin_show_message(response.message, 'error', '', false, 3000);
                 }
             },
             error: function (err) {

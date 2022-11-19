@@ -154,7 +154,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Order {
 									}
 									if ( $product_id ) {
 										$currency               = 'USD';
-										$woocommerce_currency   = get_woocommerce_currency();
+										$woocommerce_currency   = get_option( 'woocommerce_currency' );
 										$use_different_currency = false;
 										if ( strtolower( $woocommerce_currency ) !== strtolower( $currency ) ) {
 											$use_different_currency = true;

@@ -179,7 +179,12 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 					}
 				}
 				$country = self::get_customer_country();
-				$freight = self::get_shipping( $wpml_product_id ? $wpml_product_id : $product_id, $country, $ship_from, $quantity );
+				$state   = $city = '';
+				if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $country ) ) {
+					$state = self::get_customer_state_name( self::get_customer_state(), $country );
+					$city  = self::get_customer_city();
+				}
+				$freight = self::get_shipping( $wpml_product_id ? $wpml_product_id : $product_id, $country, $ship_from, $quantity, $state, $city );
 				if ( count( $freight ) ) {
 					$search = array_search( $company, array_column( $freight, 'company' ) );
 					if ( $search !== false ) {
@@ -192,6 +197,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 							'shipping_cost' => $freight[ $search ]['shipping_cost'],
 							'delivery_time' => $freight[ $search ]['delivery_time'],
 							'quantity'      => $quantity,
+							'state'         => $state,
+							'city'          => $city,
 						);
 						WC()->cart->cart_contents[ $cart_item_key ]['vi_wad_item_shipping'] = $shipping_info;
 					}
@@ -261,8 +268,24 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 				}
 			}
 		}
-		$ship_from_g  = false;
-		$country      = self::get_customer_country();
+		$ship_from_g = false;
+		$country     = self::get_customer_country();
+		$state       = $city = '';
+		if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $country ) ) {
+			$state = self::get_customer_state_name( self::get_customer_state(), $country );
+			$city  = self::get_customer_city();
+			if ( ! $state ) {
+				$state = 'Acre';
+				$city  = 'Acrelandia';
+			} elseif ( ! $city ) {
+				$default_city = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_aliexpress_city_code( $country, $state, '' );
+				if ( ! empty( $default_city['n'] ) ) {
+					$city = $default_city['n'];
+				} else {
+					$state = '';
+				}
+			}
+		}
 		$wc_countries = WC()->countries->get_countries();
 		$country_name = isset( $wc_countries[ $country ] ) ? $wc_countries[ $country ] : esc_html__( 'your country', 'woocommerce-alidropship' );
 		if ( $product->is_type( 'variable' ) ) {
@@ -313,7 +336,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 			} elseif ( $ship_from_g === '' && ! $ship_from ) {
 				$class .= ' vi-wad-single-product-shipping-not-refresh';
 			}
-			$freight       = self::get_shipping( $wpml_product_id ? $wpml_product_id : $product_id, $country, $ship_from, $quantity );
+			$freight       = self::get_shipping( $wpml_product_id ? $wpml_product_id : $product_id, $country, $ship_from, $quantity, $state, $city );
 			$shipping_info = array(
 				'time'          => VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_shipping_cache_time( time() ),
 				'country'       => $country,
@@ -323,6 +346,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 				'shipping_cost' => '',
 				'delivery_time' => '',
 				'quantity'      => $quantity,
+				'state'         => $state,
+				'city'          => $city,
 			);
 			if ( count( $freight ) ) {
 				if ( $shipping_info['company'] ) {
@@ -370,7 +395,6 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 				?>
             </div>
 			<?php
-
 		}
 	}
 
@@ -477,6 +501,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 
 	/**
 	 * Detect Side cart - Cart all in one
+	 *
+	 * @param $name
 	 */
 	public function woocommerce_before_template_caio( $name ) {
 		if ( $name === 'sc-product-list-html.php' ) {
@@ -559,8 +585,9 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 				wp_enqueue_style( 'woocommerce-alidropship-shipping-select-single-product', VI_WOOCOMMERCE_ALIDROPSHIP_CSS . 'shipping-single-product.css', '', VI_WOOCOMMERCE_ALIDROPSHIP_VERSION );
 			}
 			wp_localize_script( 'woocommerce-alidropship-shipping-select', 'vi_wad_shipping', array(
-				'url'      => admin_url( 'admin-ajax.php' ),
-				'language' => self::$language,
+				'url'                                           => admin_url( 'admin-ajax.php' ),
+				'language'                                      => self::$language,
+				'countries_supported_shipping_by_province_city' => VI_WOOCOMMERCE_ALIDROPSHIP_DATA::countries_supported_shipping_by_province_city(),
 			) );
 		}
 	}
@@ -819,6 +846,11 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 						if ( $cart_item['variation_id'] ) {
 							$ship_from = get_post_meta( $cart_item['variation_id'], '_vi_wad_aliexpress_variation_ship_from', true );
 						}
+						$state = $city = '';
+						if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $country ) ) {
+							$state = self::get_customer_state_name( self::get_customer_state(), $country );
+							$city  = self::get_customer_city();
+						}
 						$shipping_info            = array(
 							'time'          => VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_shipping_cache_time( $now ),
 							'country'       => $country,
@@ -828,8 +860,10 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 							'shipping_cost' => '',
 							'delivery_time' => '',
 							'quantity'      => 0,
+							'state'         => $state,
+							'city'          => $city,
 						);
-						$freight                  = self::get_shipping( $cart_item['product_id'], $country, $ship_from, $cart_item['quantity'] );
+						$freight                  = self::get_shipping( $cart_item['product_id'], $country, $ship_from, $cart_item['quantity'], $state, $city );
 						$shipping_info['freight'] = $freight;
 						if ( count( $freight ) ) {
 							$shipping_info['company']       = $freight[0]['company'];
@@ -909,7 +943,12 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 	 * @return bool
 	 */
 	public function woocommerce_update_cart_action_cart_updated( $cart_updated ) {
-		$country              = self::get_customer_country();
+		$country = self::get_customer_country();
+		$state   = $city = '';
+		if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $country ) ) {
+			$state = self::get_customer_state_name( self::get_customer_state(), $country );
+			$city  = self::get_customer_city();
+		}
 		$vi_wad_item_shipping = isset( $_POST['vi_wad_item_shipping'] ) ? wc_clean( $_POST['vi_wad_item_shipping'] ) : array();
 		self::$language       = isset( $_POST['vi_wad_language'] ) ? sanitize_text_field( $_POST['vi_wad_language'] ) : '';
 		if ( ! WC()->cart->is_empty() && is_array( $vi_wad_item_shipping ) && count( $vi_wad_item_shipping ) ) {
@@ -926,7 +965,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 							if ( $cart_item['variation_id'] ) {
 								$ship_from = get_post_meta( $cart_item['variation_id'], '_vi_wad_aliexpress_variation_ship_from', true );
 							}
-							$freight                  = self::get_shipping( $cart_item['product_id'], $country, $ship_from, $cart_item['quantity'] );
+							$freight                  = self::get_shipping( $cart_item['product_id'], $country, $ship_from, $cart_item['quantity'], $state, $city );
 							$shipping_info['time']    = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_shipping_cache_time( $now );
 							$shipping_info['country'] = $country;
 							$shipping_info['freight'] = $freight;
@@ -1008,13 +1047,36 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 			$post_data = array();
 		}
 		$country        = isset( $_POST['country'] ) ? wc_clean( wp_unslash( $_POST['country'] ) ) : null;
+		$state          = isset( $_POST['state'] ) ? wc_clean( wp_unslash( $_POST['state'] ) ) : null;
+		$city           = isset( $_POST['city'] ) ? wc_clean( wp_unslash( $_POST['city'] ) ) : null;
 		self::$language = isset( $post_data['vi_wad_language'] ) ? sanitize_text_field( $post_data['vi_wad_language'] ) : '';
 		if ( ! wc_ship_to_billing_address_only() && isset( $post_data['ship_to_different_address'] ) && $post_data['ship_to_different_address'] ) {
 			$country = isset( $_POST['s_country'] ) ? wc_clean( wp_unslash( $_POST['s_country'] ) ) : null;
+			$state   = isset( $_POST['s_state'] ) ? wc_clean( wp_unslash( $_POST['s_state'] ) ) : null;
+			$city    = isset( $_POST['s_city'] ) ? wc_clean( wp_unslash( $_POST['s_city'] ) ) : null;
 		}
 		if ( ! $country ) {
 			$country = self::get_customer_country();
 		}
+		$shipping_by_province_city = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $country );
+		if ( $shipping_by_province_city ) {
+			if ( $state ) {
+				$states = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_states( $country );
+				if ( isset( $states[ $state ] ) ) {
+					$state = $states[ $state ];
+				} else {
+					$state = '';
+					$city  = '';
+				}
+			} else {
+				$state = '';
+				$city  = '';
+			}
+		} else {
+			$state = '';
+			$city  = '';
+		}
+
 		$cart = WC()->cart;
 		$now  = time();
 		if ( ! empty( $cart->removed_cart_contents ) ) {
@@ -1039,16 +1101,18 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 				if ( isset( $cart_item['vi_wad_item_shipping'] ) ) {
 					$shipping_info = $cart_item['vi_wad_item_shipping'];
 					$new_company   = isset( $post_data['vi_wad_item_shipping'][ $cart_item_key ]['company'] ) ? $post_data['vi_wad_item_shipping'][ $cart_item_key ]['company'] : '';
-					if ( $shipping_info['country'] !== $country ) {
+					if ( $shipping_info['country'] !== $country || ( $shipping_by_province_city && ( ! isset( $shipping_info['state'] ) || $state !== $shipping_info['state'] || ! isset( $shipping_info['city'] ) || $city !== $shipping_info['city'] ) ) ) {
 						$ali_id = get_post_meta( $cart_item['product_id'], '_vi_wad_aliexpress_product_id', true );
 						if ( $ali_id ) {
 							$ship_from = get_post_meta( $cart_item['product_id'], '_vi_wad_aliexpress_variation_ship_from', true );
 							if ( $cart_item['variation_id'] ) {
 								$ship_from = get_post_meta( $cart_item['variation_id'], '_vi_wad_aliexpress_variation_ship_from', true );
 							}
-							$freight                  = self::get_shipping( $cart_item['product_id'], $country, $ship_from, $cart_item['quantity'] );
+							$freight                  = self::get_shipping( $cart_item['product_id'], $country, $ship_from, $cart_item['quantity'], $state, $city );
 							$shipping_info['time']    = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_shipping_cache_time( $now );
 							$shipping_info['country'] = $country;
+							$shipping_info['state']   = $state;
+							$shipping_info['city']    = $city;
 							$shipping_info['freight'] = $freight;
 							if ( count( $freight ) ) {
 								self::handle_cart_shipping_info( $freight, $cart_item['quantity'], $shipping_info );
@@ -1134,6 +1198,33 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Frontend_Shipping {
 		}
 
 		return $country;
+	}
+
+	private static function get_customer_state() {
+		$state = WC()->customer->get_shipping_state();
+		if ( ! $state ) {
+			$state = WC()->customer->get_billing_state();
+		}
+
+		return $state;
+	}
+
+	private static function get_customer_state_name( $state, $country ) {
+		$states = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_states( $country );
+		if ( isset( $states[ $state ] ) ) {
+			$state = $states[ $state ];
+		}
+
+		return $state;
+	}
+
+	private static function get_customer_city() {
+		$city = WC()->customer->get_shipping_city();
+		if ( ! $city ) {
+			$city = WC()->customer->get_billing_city();
+		}
+
+		return $city;
 	}
 
 	private static function get_shipping( $woo_id, $country, $ship_from, $quantity, $province = '', $city = '' ) {

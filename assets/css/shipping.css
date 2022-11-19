@@ -179,6 +179,10 @@ html.vi_wad-noscroll {
     width: 100%;
 }
 
+.vi-wad-item-shipping > label {
+    display: inline-block;
+}
+
 @media screen and (min-width: 600px) {
     .vi-wad-item-shipping-select-popup-modal .vi-wad-item-shipping-select-popup-main {
         min-width: 600px;

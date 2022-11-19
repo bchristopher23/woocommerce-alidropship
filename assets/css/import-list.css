@@ -762,10 +762,6 @@ th, td {
     padding: 8px 16px;
 }
 
-th {
-    background: #eee;
-}
-
 .vi-wad-variations-tab .labeled.input input.vi-wad-import-data-variation-sale-price,
 .vi-wad-variations-tab .labeled.input input.vi-wad-import-data-variation-regular-price {
     width: calc(100% - 32px);
@@ -1069,4 +1065,25 @@ ul.vi-wad-attribute-filter-list li.vi-wad-attribute-filter-item.vi-wad-attribute
 
 .vi-wad-product-price-alert {
     background: #fff4e2 !important;
+}
+
+.vi-wad-product-video .form-table {
+    margin-bottom: 15px;
+    border-bottom: 1px solid rgba(1, 1, 1, .1);
+}
+
+/*RTL*/
+.rtl .vi-ui.styled.accordion .title .vi-wad-button-view-and-edit {
+    right: unset;
+    left: 10px;
+}
+
+.rtl .vi-wad-override-product-options-container .vi-wad-override-product-options-content .vi-wad-override-product-options-content-header .vi-wad-override-product-options-close,
+.rtl .vi-wad-modal-popup-container .vi-wad-modal-popup-content .vi-wad-modal-popup-header .vi-wad-modal-popup-close {
+    left: 20px;
+    right: unset;
+}
+
+.rtl .vi-wad-button-import-all-container {
+    float: right;
 }

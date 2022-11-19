@@ -24,6 +24,10 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Transfer_Settings {
 			$args = vi_wad_json_decode( base64_decode( sanitize_text_field( $_POST['vi_wad_transfer_settings>'] ) ) );
 			if ( is_array( $args ) && count( $args ) ) {
 				$this->error = false;
+				/*Do not migrate auto update key and access token as they are unable to use in other sites*/
+				unset($args['key']);
+				unset($args['access_tokens']);
+				unset($args['access_token']);
 				$args        = array_merge( $this->settings->get_params(), $args );
 				update_option( 'wooaliexpressdropship_params', $args );
 				$wooaliexpressdropship_settings = $args;

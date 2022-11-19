@@ -514,3 +514,19 @@ form.vi-wad-imported-products-publish .vi-wad-imported-products-count-publish-co
     background: rgba(255, 255, 255, .5);
     z-index: 1;
 }
+
+/*RTL*/
+.rtl .vi-wad-message .vi-ui.message.vi-wad-product-notice-message .vi-wad-product-notice-dismiss,
+.rtl .vi-ui.styled.accordion .title .vi-wad-button-view-and-edit {
+    right: unset;
+    left: 10px;
+}
+
+.rtl .vi-wad-delete-product-options-container .vi-wad-delete-product-options-content .vi-wad-delete-product-options-content-header h2 {
+    margin-right: 0;
+    margin-left: 30px;
+}
+.rtl .vi-wad-delete-product-options-container .vi-wad-delete-product-options-content .vi-wad-delete-product-options-content-header .vi-wad-delete-product-options-close{
+    right: unset;
+    left: 20px;
+}

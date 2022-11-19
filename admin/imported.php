@@ -568,7 +568,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Imported {
 					array(
 						'key'     => '_vi_wad_woo_id',
 						'compare' => 'exists',
-					)
+					),
 				),
 			);
 			if ( ! $is_main ) {
@@ -602,11 +602,20 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Imported {
 							<?php
 							if ( $status !== 'trash' ) {
 								?>
-                                <a class="vi-ui button green mini <?php echo esc_attr( self::set( 'button-update-products' ) ) ?> inverted labeled icon"
+                                <a class="vi-ui button green mini <?php echo esc_attr( self::set( array(
+									'button-update-products',
+									'hidden'
+								) ) ) ?> inverted labeled icon"
                                    target="_blank"
                                    href="<?php echo esc_url( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_update_product_url( $the_query->posts[0] ) ) ?>"
                                    title="<?php esc_attr_e( 'Sync imported products with AliExpress using chrome extension', 'woocommerce-alidropship' ) ?>"><i
                                             class="icon external"></i><?php esc_html_e( 'Sync Products', 'woocommerce-alidropship' ) ?>
+                                </a>
+                                <a target="_blank"
+                                   href="https://downloads.villatheme.com/?download=alidropship-extension"
+                                   title="<?php esc_attr_e( 'To sync products manually, please install the chrome extension', 'woocommerce-alidropship' ) ?>"
+                                   class="vi-ui positive button labeled icon mini <?php echo esc_attr( self::set( 'download-chrome-extension' ) ) ?>"><i
+                                            class="external icon"></i><?php esc_html_e( 'Install Extension', 'woocommerce-alidropship' ) ?>
                                 </a>
 								<?php
 							} else {
@@ -756,10 +765,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Imported {
 					$date_format = 'F j, Y';
 				}
 				$show_shipping_option = self::$settings->get_params( 'show_shipping_option' );
-				while ( $the_query->have_posts() ) {
-					$the_query->the_post();
-					$product_id         = get_the_ID();
-					$product            = get_post();
+				foreach ( $the_query->posts as $product_id ) {
+					$product            = get_post( $product_id );
 					$woo_product_id     = get_post_meta( $product_id, '_vi_wad_woo_id', true );
 					$video              = get_post_meta( $woo_product_id, '_vi_wad_product_video', true );
 					$title              = $product->post_title;
@@ -843,9 +850,19 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Imported {
 											echo VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List::get_button_view_edit_html( $woo_product_id );
 											?>
                                             <a href="<?php echo esc_url( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_update_product_url( $product_id, false ) ) ?>"
-                                               target="_blank" class="vi-ui button mini green inverted labeled icon"
+                                               target="_blank"
+                                               class="vi-ui button mini green inverted labeled icon <?php echo esc_attr( self::set( array(
+												   'button-update-product',
+												   'hidden'
+											   ) ) ) ?>"
                                                rel="nofollow"><i
                                                         class="icon external"></i><?php esc_html_e( 'Sync', 'woocommerce-alidropship' ); ?>
+                                            </a>
+                                            <a target="_blank"
+                                               href="https://downloads.villatheme.com/?download=alidropship-extension"
+                                               title="<?php esc_attr_e( 'To sync this product manually, please install the chrome extension', 'woocommerce-alidropship' ) ?>"
+                                               class="vi-ui positive button labeled icon mini <?php echo esc_attr( self::set( 'download-chrome-extension' ) ) ?>"><i
+                                                        class="external icon"></i><?php esc_html_e( 'Install Extension', 'woocommerce-alidropship' ) ?>
                                             </a>
 											<?php
 										} else {

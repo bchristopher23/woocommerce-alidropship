@@ -260,6 +260,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_DS_API_Update_Product {
 							$woo_variations = $woo_product->get_children();
 							if ( count( $woo_variations ) ) {
 								$is_ali_variation = 0;
+								$used_variations  = array();
 								foreach ( $woo_variations as $variation_id ) {
 									$woo_variation = wc_get_product( $variation_id );
 									if ( $woo_variation ) {
@@ -269,11 +270,64 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_DS_API_Update_Product {
 											$variations_skuAttr_s        = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::search_sku_attr( $skuAttr, $variations_skuAttr );
 											$latest_variations_skuAttr_s = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::search_sku_attr( $skuAttr, $latest_variations_skuAttr );
 											if ( $latest_variations_skuAttr_s !== false && $variations_skuAttr_s !== false ) {
+												$used_variations[ $variation_id ] = $latest_variations[ $latest_variations_skuAttr_s ];
 												self::process_product_to_update( $woo_variation, $variation_id, $variations_skuAttr_s, $latest_variations[ $latest_variations_skuAttr_s ], $shipping_cost, $currency_code, $variations, $update, $item_log );
 											} else {
 												$update['not_available'][] = $variation_id;
 												$item_log[]                = "#{$variation_id} original variation not found";
 												self::update_product_if( $woo_variation, self::$settings->get_params( 'update_product_removed_variation' ), $product_log );
+											}
+										}
+									}
+								}
+								if ( self::$settings->get_params( 'update_product_attributes' ) && $used_variations ) {
+									$get_attributes = $woo_product->get_attributes();
+									if ( $get_attributes ) {
+										$attr_data = array();
+										$options   = array();
+										foreach ( $get_attributes as $get_attribute_k => $get_attribute ) {
+											$attr_key = $get_attribute_k;
+											if ( substr( $attr_key, 0, 3 ) === 'pa_' ) {
+												$attr_key = substr( $attr_key, 3 );
+											}
+											$options[ $attr_key ] = array(
+												'name'   => $get_attribute->get_name(),
+												'values' => array(),
+											);
+										}
+										$get_attributes_slugs = array_keys( $options );
+										$attr_key             = '';
+										$used_variations_     = array_values( $used_variations );
+										if ( self::$settings->get_params( 'alternative_attribute_values' ) && isset( $used_variations_[0]['variation_ids_sub'] ) && count( $get_attributes_slugs ) <= count( array_keys( $used_variations_[0]['variation_ids_sub'] ) ) ) {
+											$attr_key = 'variation_ids_sub';
+										} else if ( count( $get_attributes_slugs ) <= count( array_keys( $used_variations_[0]['variation_ids'] ) ) ) {
+											$attr_key = 'variation_ids';
+										}
+										if ( $attr_key ) {
+											$attributes_mapping_origin      = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_attributes_mapping_origin();
+											$attributes_mapping_replacement = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_attributes_mapping_replacement();
+											foreach ( $used_variations as $used_variation ) {
+												foreach ( $options as $option_k => $option ) {
+													$found = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::find_attribute_replacement( $attributes_mapping_origin, $attributes_mapping_replacement, $used_variation[ $attr_key ][ $option_k ], $option_k );
+													if ( $found ) {
+														if ( ! in_array( $found, $options[ $option_k ]['values'] ) ) {
+															$options[ $option_k ]['values'][] = $found;
+														}
+													} else {
+														if ( ! in_array( $used_variation[ $attr_key ][ $option_k ], $options[ $option_k ]['values'] ) ) {
+															$options[ $option_k ]['values'][] = $used_variation[ $attr_key ][ $option_k ];
+														}
+													}
+												}
+											}
+											self::create_product_attributes( $options, $attr_data );
+											$woo_product->set_attributes( $attr_data );
+											$woo_product->save();
+											foreach ( $used_variations as $variation_id => $used_variation ) {
+												$variation_attributes = self::create_variation_attribute( $options, $used_variation, $attr_key );
+												$woo_variation        = wc_get_product( $variation_id );
+												$woo_variation->set_attributes( $variation_attributes );
+												$woo_variation->save();
 											}
 										}
 									}
@@ -335,12 +389,16 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_DS_API_Update_Product {
 				}
 			}
 		} else {
-			$update['is_offline'] = true;
-			$log                  .= "Ali product is offline";
-			$log_level            = WC_Log_Levels::ALERT;
-			$woo_product          = wc_get_product( $woo_id );
-			if ( $woo_product ) {
-				self::update_product_if( $woo_product, self::$settings->get_params( 'update_product_if_not_available' ), $log );
+			$log_level = WC_Log_Levels::ALERT;
+			if ( $get_data['code'] === 'currency_not_supported' ) {
+				$log .= "Currency not supported";
+			} else {
+				$update['is_offline'] = true;
+				$log                  .= "Ali product is offline";
+				$woo_product          = wc_get_product( $woo_id );
+				if ( $woo_product ) {
+					self::update_product_if( $woo_product, self::$settings->get_params( 'update_product_if_not_available' ), $log );
+				}
 			}
 		}
 		do_action( 'vi_wad_after_sync_product', $product_ids, $is_api_sync );
@@ -419,19 +477,37 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_DS_API_Update_Product {
 	}
 
 	/**
-	 * @param $video
+	 * @param $video_info
 	 * @param $product_id
 	 * @param $woo_id
 	 */
-	private static function import_product_video( $video, $product_id, $woo_id ) {
+	private static function import_product_video( $video_info, $product_id, $woo_id ) {
 		if ( self::$settings->get_params( 'import_product_video' ) ) {
-			if ( ! empty( $video['media_id'] ) && ! empty( $video['ali_member_id'] ) ) {
-				$old_video = get_post_meta( $product_id, '_vi_wad_video', true );
-				if ( ! $old_video || $video['media_id'] !== $old_video['media_id'] ) {
-					update_post_meta( $product_id, '_vi_wad_video', $video );
-					update_post_meta( $woo_id, '_vi_wad_product_video', "https://cloud.video.taobao.com/play/u/{$video['ali_member_id']}/p/1/e/6/t/10301/{$video['media_id']}.mp4" );
-				} elseif ( ! get_post_meta( $woo_id, '_vi_wad_product_video', true ) ) {
-					update_post_meta( $woo_id, '_vi_wad_product_video', "https://cloud.video.taobao.com/play/u/{$video['ali_member_id']}/p/1/e/6/t/10301/{$video['media_id']}.mp4" );
+			if ( ! empty( $video_info['media_id'] ) && ! empty( $video_info['ali_member_id'] ) ) {
+				$update_video = false;
+				if ( ! get_post_meta( $woo_id, '_vi_wad_product_video', true ) ) {
+					$update_video = true;
+				} else {
+					$old_video = get_post_meta( $product_id, '_vi_wad_video', true );
+					if ( ! $old_video ) {
+						$update_video = true;
+					} else {
+						if ( $video_info['media_id'] !== $old_video['media_id'] ) {
+							$update_video = true;
+						} else {
+							if ( empty( $old_video['url'] ) ) {
+								$update_video = true;
+							}
+						}
+					}
+				}
+				if ( $update_video ) {
+					$link = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_valid_aliexpress_video_link( $video_info );
+					if ( $link ) {
+						$video_info['url'] = $link;
+						update_post_meta( $product_id, '_vi_wad_video', $video_info );
+						update_post_meta( $woo_id, '_vi_wad_product_video', $link );
+					}
 				}
 			}
 		}
@@ -478,15 +554,27 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_DS_API_Update_Product {
 				}
 			}
 		}
-		$rate = '';
-		switch ( $currency_code ) {
-			case 'USD':
-				$rate = 1;
-				break;
-			case 'CNY':
-				$rate = self::$settings->get_params( 'import_currency_rate_CNY' );
-				break;
-			default:
+		$rate                 = '';
+		$woocommerce_currency = get_option( 'woocommerce_currency' );
+		if ( $currency_code === 'USD' ) {
+			$rate = 1;
+		} else {
+//			if ( $woocommerce_currency === $currency_code ) {
+//				if ( $woocommerce_currency === 'RUB' ) {//temporarily restrict to RUB
+//					$import_currency_rate = self::$settings->get_params( 'import_currency_rate' );
+//					if ( $import_currency_rate ) {
+//						$rate = 1 / $import_currency_rate;
+//					}
+//				}
+//			}
+			if ( ! $rate ) {
+				if ( in_array( $currency_code, array(
+//					'RUB',
+					'CNY'
+				), true ) ) {
+					$rate = self::$settings->get_params( "import_currency_rate_{$currency_code}" );
+				}
+			}
 		}
 		if ( $rate ) {
 			if ( isset( $skuVal['skuMultiCurrencyCalPrice'] ) ) {
@@ -499,11 +587,21 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_DS_API_Update_Product {
 			} else {
 				$variations[ $variations_skuAttr_s ]['regular_price'] = isset( $skuVal['skuCalPrice'] ) ? $rate * $skuVal['skuCalPrice'] : '';
 				$variations[ $variations_skuAttr_s ]['sale_price']    = ( isset( $skuVal['actSkuCalPrice'], $skuVal['actSkuBulkCalPrice'] ) && VI_WOOCOMMERCE_ALIDROPSHIP_DATA::string_to_float( $skuVal['actSkuBulkCalPrice'] ) > VI_WOOCOMMERCE_ALIDROPSHIP_DATA::string_to_float( $skuVal['actSkuCalPrice'] ) ) ? $rate * $skuVal['actSkuBulkCalPrice'] : ( isset( $skuVal['actSkuCalPrice'] ) ? $rate * $skuVal['actSkuCalPrice'] : '' );
-				if ( isset( $skuVal['skuAmount']['currency'], $skuVal['skuAmount']['value'] ) && $skuVal['skuAmount']['currency'] === $currency_code && $skuVal['skuAmount']['value'] ) {
+				if ( isset( $skuVal['skuAmount']['currency'], $skuVal['skuAmount']['value'] ) && $skuVal['skuAmount']['value'] ) {
 					/*Data passed from extension*/
-					$variations[ $variations_skuAttr_s ]['regular_price'] = $rate * $skuVal['skuAmount']['value'];
-					if ( isset( $skuVal['skuActivityAmount']['currency'], $skuVal['skuActivityAmount']['value'] ) && $skuVal['skuActivityAmount']['currency'] === $currency_code && $skuVal['skuActivityAmount']['value'] ) {
-						$variations[ $variations_skuAttr_s ]['sale_price'] = $rate * $skuVal['skuActivityAmount']['value'];
+					if ( $skuVal['skuAmount']['currency'] === $currency_code || $skuVal['skuAmount']['currency'] === $woocommerce_currency || in_array( $skuVal['skuAmount']['currency'], array(
+							'RUB',
+							'CNY'
+						), true ) ) {
+						$variations[ $variations_skuAttr_s ]['regular_price'] = $rate * $skuVal['skuAmount']['value'];
+						if ( isset( $skuVal['skuActivityAmount']['currency'], $skuVal['skuActivityAmount']['value'] ) && $skuVal['skuActivityAmount']['value'] ) {
+							if ( $skuVal['skuActivityAmount']['currency'] === $currency_code || $skuVal['skuActivityAmount']['currency'] === $woocommerce_currency || in_array( $skuVal['skuActivityAmount']['currency'], array(
+									'RUB',
+									'CNY'
+								), true ) ) {
+								$variations[ $variations_skuAttr_s ]['sale_price'] = $rate * $skuVal['skuActivityAmount']['value'];
+							}
+						}
 					}
 				}
 			}
@@ -546,13 +644,13 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_DS_API_Update_Product {
 		$price_change      = false;
 		$regular_price_old = $product->get_regular_price();
 		$sale_price_old    = $product->get_sale_price();
-		$has_sale_price    = self::$settings->process_price( $price, true );
+		$has_sale_price    = self::$settings->process_price( $price, true, $woo_id );
 		if ( self::$settings->get_params( 'shipping_cost_after_price_rules' ) ) {
-			$regular_price = self::$settings->process_exchange_price( self::$settings->process_price( $price ) + $shipping_cost );
+			$regular_price = self::$settings->process_exchange_price( self::$settings->process_price( $price, false, $woo_id ) + $shipping_cost );
 			$sale_price    = self::$settings->process_exchange_price( $has_sale_price + $shipping_cost );
 		} else {
-			$regular_price = self::$settings->process_exchange_price( self::$settings->process_price( $price + $shipping_cost ) );
-			$sale_price    = self::$settings->process_exchange_price( self::$settings->process_price( $price + $shipping_cost, true ) );
+			$regular_price = self::$settings->process_exchange_price( self::$settings->process_price( $price + $shipping_cost, false, $woo_id ) );
+			$sale_price    = self::$settings->process_exchange_price( self::$settings->process_price( $price + $shipping_cost, true, $woo_id ) );
 		}
 		$price_change_max = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::string_to_float( self::$settings->get_params( 'price_change_max' ) );
 		if ( $price_change_max > 0 ) {
@@ -674,5 +772,116 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_DS_API_Update_Product {
 	private static function log( $content, $log_level = 'alert' ) {
 //		VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Log::log( $content, 'cron_update_products.txt' );
 		VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Log::wc_log( $content, 'api-products-sync', $log_level );
+	}
+
+	public static function create_product_attributes( $options, &$attr_data ) {
+		global $wp_taxonomies;
+		$position = 1;
+		if ( self::$settings->get_params( 'use_global_attributes' ) ) {
+			foreach ( $options as $option_k => $option ) {
+				$attribute_slug = self::sanitize_taxonomy_name( $option['name'] );
+				$attribute_id   = wc_attribute_taxonomy_id_by_name( $option['name'] );
+				if ( ! $attribute_id ) {
+					$attribute_id = wc_create_attribute( array(
+						'name'         => $option['name'],
+						'slug'         => $attribute_slug,
+						'type'         => 'select',
+						'order_by'     => 'menu_order',
+						'has_archives' => false,
+					) );
+				}
+				if ( $attribute_id && ! is_wp_error( $attribute_id ) ) {
+					$attribute_obj     = wc_get_attribute( $attribute_id );
+					$attribute_options = array();
+					if ( ! empty( $attribute_obj ) ) {
+						$taxonomy                   = $attribute_obj->slug; // phpcs:ignore
+						$wp_taxonomies[ $taxonomy ] = new WP_Taxonomy( $taxonomy, 'product' );
+						if ( count( $option['values'] ) ) {
+							foreach ( $option['values'] as $term_k => $term_v ) {
+								$option['values'][ $term_k ] = strval( wc_clean( $term_v ) );
+								$attribute_value             = get_term_by( 'slug', self::sanitize_taxonomy_name( $option['values'][ $term_k ] ), $taxonomy );
+								if ( ! $attribute_value ) {
+									$insert_term = wp_insert_term( $option['values'][ $term_k ], $taxonomy );
+									if ( ! is_wp_error( $insert_term ) ) {
+										$attribute_options[] = $insert_term['term_id'];
+									} elseif ( isset( $insert_term->error_data ) && isset( $insert_term->error_data['term_exists'] ) ) {
+										$attribute_options[] = $insert_term->error_data['term_exists'];
+									}
+								} else {
+									$attribute_options[] = $attribute_value->term_id;
+								}
+							}
+						}
+					}
+					$attribute_object = new WC_Product_Attribute();
+					$attribute_object->set_id( $attribute_id );
+					$attribute_object->set_name( wc_attribute_taxonomy_name_by_id( $attribute_id ) );
+					if ( count( $attribute_options ) ) {
+						$attribute_object->set_options( $attribute_options );
+					} else {
+						$attribute_object->set_options( $option['values'] );
+					}
+					$attribute_object->set_position( $position );
+					$attribute_object->set_visible( apply_filters( 'vi_wad_create_product_attribute_set_visible', 0, $option ) );
+					$attribute_object->set_variation( 1 );
+					$attr_data[] = $attribute_object;
+					$position ++;
+				}
+			}
+		} else {
+			foreach ( $options as $option_k => $option ) {
+				$attribute_object = new WC_Product_Attribute();
+				$attribute_object->set_name( $option['name'] );
+				$attribute_object->set_options( $option['values'] );
+				$attribute_object->set_position( $position );
+				$attribute_object->set_visible( apply_filters( 'vi_wad_create_product_attribute_set_visible', 0, $option ) );
+				$attribute_object->set_variation( 1 );
+				$attr_data[] = $attribute_object;
+				$position ++;
+			}
+		}
+	}
+
+	public static function sanitize_taxonomy_name( $name ) {
+		return strtolower( urlencode( wc_sanitize_taxonomy_name( $name ) ) );
+	}
+
+	public static function create_variation_attribute( $options, $variant, $attr_key ) {
+		$attributes                     = array();
+		$attributes_mapping_origin      = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_attributes_mapping_origin();
+		$attributes_mapping_replacement = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_attributes_mapping_replacement();
+		if ( self::$settings->get_params( 'use_global_attributes' ) ) {
+			foreach ( $options as $option_k => $option_v ) {
+				if ( ! empty( $variant[ $attr_key ][ $option_k ] ) ) {
+					$term_value = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::find_attribute_replacement( $attributes_mapping_origin, $attributes_mapping_replacement, $variant[ $attr_key ][ $option_k ], $option_k );
+					if ( ! $term_value ) {
+						$term_value = $variant[ $attr_key ][ $option_k ];
+					}
+					$attribute_id  = wc_attribute_taxonomy_id_by_name( $option_v['name'] );
+					$attribute_obj = wc_get_attribute( $attribute_id );
+					if ( $attribute_obj ) {
+						$attribute_value = get_term_by( 'slug', self::sanitize_taxonomy_name( $term_value ), $attribute_obj->slug );
+						if ( ! $attribute_value ) {
+							$attribute_value = get_term_by( 'name', $term_value, $attribute_obj->slug );
+						}
+						if ( $attribute_value ) {
+							$attributes[ self::sanitize_taxonomy_name( $attribute_obj->slug ) ] = $attribute_value->slug;
+						}
+					}
+				}
+			}
+		} else {
+			foreach ( $options as $option_k => $option_v ) {
+				if ( ! empty( $variant[ $attr_key ][ $option_k ] ) ) {
+					$term_value = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::find_attribute_replacement( $attributes_mapping_origin, $attributes_mapping_replacement, $variant[ $attr_key ][ $option_k ], $option_k );
+					if ( ! $term_value ) {
+						$term_value = $variant[ $attr_key ][ $option_k ];
+					}
+					$attributes[ $option_k ] = $term_value;
+				}
+			}
+		}
+
+		return $attributes;
 	}
 }

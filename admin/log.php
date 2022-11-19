@@ -203,7 +203,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Log {
 								<?php
 								echo esc_html( $viewed_log );
 								if ( ! empty( $viewed_log ) ) { ?>
-                                    <a class="page-title-action"
+                                    <a class="page-title-action vi-wad-delete-log"
                                        href="<?php echo esc_url( wp_nonce_url( add_query_arg( array( 'handle' => sanitize_title( $viewed_log ) ), admin_url( 'admin.php?page=woocommerce-alidropship-logs' ) ), 'remove_log' ) ); ?>"
                                        class="button"><?php esc_html_e( 'Delete log', 'woocommerce' ); ?></a>
 									<?php
@@ -212,7 +212,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Log {
                             </h2>
                         </div>
                         <div class="alignright">
-                            <form class="vi-wad-logs-form" action="<?php echo esc_url( admin_url( 'admin.php?page=woocommerce-alidropship-logs' ) ); ?>"
+                            <form class="vi-wad-logs-form"
+                                  action="<?php echo esc_url( admin_url( 'admin.php?page=woocommerce-alidropship-logs' ) ); ?>"
                                   method="post">
                                 <select name="log_of">
                                     <option value=""><?php esc_html_e( 'All log files', 'woocommerce-alidropship' ) ?></option>

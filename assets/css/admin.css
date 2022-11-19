@@ -72,6 +72,10 @@ table.price-rule.vi-ui.table .vi-wad-price-rule-row-default th:first-child,
     text-align: center;
 }
 
+.vi-wad-price-rule-container .vi-wad-price-rule-row:first-child:last-child .vi-wad-price-rule-remove {
+    visibility: hidden;
+}
+
 span.vi-wad-currency-symbol + input {
     width: calc(100% - 20px) !important;
 }
@@ -109,27 +113,27 @@ td.vi-wad.relative {
     font-size: 22px;
 }
 
-.string-replace thead tr th {
+.find-and-replace thead tr th {
     padding: 10px;
     text-align: center;
     background-color: #EEEEEE;
 }
 
-.string-replace tfoot tr th {
+.find-and-replace tfoot tr th {
     padding: 10px 0;
 }
 
-.string-replace tr td {
+.find-and-replace tr td {
     padding: 10px 20px 10px 0;
     text-align: center;
 }
 
-.string-replace tr td:last-child {
+.find-and-replace tr td:last-child {
     padding: 10px 0;
 }
 
 .delete-string-replace-rule.button,
-.string-replace tbody td .button {
+.find-and-replace tbody td .button {
     padding: .52em 1em;
 }
 
@@ -241,8 +245,8 @@ td.vi-wad.relative {
 .vi-ui.segment.string-replace-url table td,
 .vi-ui.segment.string-replace-name table th,
 .vi-ui.segment.string-replace-name table td,
-.vi-ui.segment.string-replace table th,
-.vi-ui.segment.string-replace table td {
+.vi-ui.segment.find-and-replace table th,
+.vi-ui.segment.find-and-replace table td {
     text-align: center;
 }
 
@@ -466,4 +470,34 @@ table.vi-ui.table.vi-wad-shipping-company-mapping {
 
 .vi-wad-table-of-placeholders .vi-wad-placeholder-value-container {
     position: relative;
+}
+
+/*Custom rules*/
+.vi-wad-custom-price-rule-add-container {
+    text-align: center;
+    margin-top: 15px;
+}
+
+.vi-wad-custom-price-rules-container .vi-wad-custom-price-rule-remove {
+    position: absolute;
+    right: 20px;
+    font-size: 20px;
+    color: red;
+    line-height: 1em;
+    display: none;
+}
+
+.vi-wad-custom-price-rule-wrap:hover .vi-wad-custom-price-rule-remove {
+    display: inline-block;
+}
+
+/*RTL*/
+.rtl .vi-wad-custom-price-rules-container .vi-wad-custom-price-rule-remove {
+    right: unset;
+    left: 20px;
+}
+
+.rtl .vi-wad-table-of-placeholders .vi-wad-placeholder-value-copy {
+    right: unset;
+    left: 15px;
 }

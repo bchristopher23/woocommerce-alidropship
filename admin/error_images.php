@@ -98,7 +98,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Error_Images {
 				$post       = get_post( $product_id );
 				if ( $post && $post->post_type === 'product' ) {
 					if ( $data['set_gallery'] != 2 || ( ! $this->settings->get_params( 'use_external_image' ) && $this->settings->get_params( 'download_description_images' ) ) ) {
-						$thumb_id = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::download_image( $image_id, $data['image_src'], $product_id );
+						$thumb_id = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::download_image( $image_id, html_entity_decode( $data['image_src'] ), $product_id );
 						if ( $thumb_id && ! is_wp_error( $thumb_id ) ) {
 							if ( $data['set_gallery'] == 2 ) {
 								$downloaded_url = wp_get_attachment_url( $thumb_id );
@@ -130,7 +130,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Error_Images {
 									update_post_meta( $product_id, '_product_image_gallery', implode( ',', array_unique( $gallery_array ) ) );
 								}
 							}
-							$response['status'] = 'success';
+							$response['status']  = 'success';
+							$response['message'] = 'Success';
 							VI_WOOCOMMERCE_ALIDROPSHIP_Error_Images_Table::delete( $id );
 						} else {
 							$response['message'] = $thumb_id->get_error_message();
@@ -211,7 +212,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Error_Images {
 		$paged = isset( $_GET['paged'] ) ? sanitize_text_field( $_GET['paged'] ) : 1;
 		?>
         <div class="wrap">
-            <h2><?php esc_html_e( 'All error images', 'woocommerce-alidropship' ) ?></h2>
+            <h2><?php esc_html_e( 'All failed images', 'woocommerce-alidropship' ) ?></h2>
 			<?php
 			$vi_wad_search_product_id  = isset( $_GET['vi_wad_search_product_id'] ) ? sanitize_text_field( $_GET['vi_wad_search_product_id'] ) : '';
 			$vi_wad_filter_by_used_for = isset( $_GET['vi_wad_filter_by_used_for'] ) ? sanitize_text_field( $_GET['vi_wad_filter_by_used_for'] ) : '';
@@ -226,10 +227,12 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Error_Images {
 						<?php
 						if ( count( $results ) ) {
 							?>
-                            <span class="vi-ui button positive <?php echo esc_attr( self::set( 'action-download-all' ) ) ?>"><?php esc_html_e( 'Import All', 'woocommerce-alidropship' ) ?></span>
-                            <span class="vi-ui button negative <?php echo esc_attr( self::set( 'action-delete-all' ) ) ?>"><?php esc_html_e( 'Delete All', 'woocommerce-alidropship' ) ?></span>
+                            <span class="vi-ui mini button positive <?php echo esc_attr( self::set( 'action-download-all' ) ) ?>"
+                                  title="<?php esc_attr_e( 'Import all failed images of current page', 'woocommerce-alidropship' ) ?>"><?php esc_html_e( 'Import All', 'woocommerce-alidropship' ) ?></span>
+                            <span class="vi-ui mini button negative <?php echo esc_attr( self::set( 'action-delete-all' ) ) ?>"
+                                  title="<?php esc_attr_e( 'Remove all failed images of current page', 'woocommerce-alidropship' ) ?>"><?php esc_html_e( 'Delete All', 'woocommerce-alidropship' ) ?></span>
                             <a href="<?php echo esc_url( wp_nonce_url( add_query_arg( 'vi_wad_empty_error_images', 1 ) ) ) ?>"
-                               class="vi-ui button negative <?php echo esc_attr( self::set( 'action-empty-error-images' ) ) ?>"
+                               class="vi-ui mini button negative <?php echo esc_attr( self::set( 'action-empty-error-images' ) ) ?>"
                                title="<?php esc_attr_e( 'Remove all failed images from database', 'woocommerce-alidropship' ) ?>"><?php esc_html_e( 'Empty List', 'woocommerce-alidropship' ) ?></a>
 							<?php
 						}

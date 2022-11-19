@@ -20,43 +20,43 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 		add_action( 'admin_head', array( $this, 'menu_order_count' ) );
 		add_action( 'wp_ajax_vi_wad_place_ali_orders', array( $this, 'place_ali_orders' ) );
 		add_action( 'wp_ajax_vi_wad_save_selected_shipping_company', array( $this, 'save_selected_shipping_company' ) );
-		add_action( 'woocommerce_new_order', array( $this, 'maybe_place_ali_order' ), 10, 2 );
-	}
-
-	/**
-	 * @param $order_id
-	 * @param $order WC_Order
-	 *
-	 * @throws Exception
-	 */
-	public function maybe_place_ali_order( $order_id, $order ) {
-		if ( ! $order ) {
-			return;
-		}
-		if ( ! in_array( $order->get_payment_method(), self::$settings->get_params( 'auto_order_if_payment' ) ) ) {
-			return;
-		}
-
+		add_action( 'woocommerce_payment_complete', array( $this, 'woocommerce_payment_complete' ) );
 		foreach ( self::$settings->get_params( 'auto_order_if_status' ) as $status ) {
 			$status = substr( $status, 3 );
-			add_action( "woocommerce_order_status_{$status}", array( $this, 'place_ali_order' ), 10, 2 );
+			add_action( "woocommerce_payment_complete_order_status_{$status}", array(
+				$this,
+				'woocommerce_payment_complete'
+			) );
 		}
 	}
 
 	/**
+	 * Auto fulfill when a new order is placed and the payment is complete
+	 *
 	 * @param $order_id
-	 * @param $order WC_Order
 	 *
 	 * @throws Exception
 	 */
-	public function place_ali_order( $order_id, $order ) {
-		if ( self::$check_order ) {
+	public function woocommerce_payment_complete( $order_id ) {
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Log::wc_log( "1-$order_id: invalid order", 'debug', 'debug' );
+
 			return;
 		}
-		if ( ! $order ) {
+		if ( self::$check_order ) {
+			VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Log::wc_log( "2-$order_id: skip", 'debug', 'debug' );
+
 			return;
 		}
 		if ( ! in_array( $order->get_payment_method(), self::$settings->get_params( 'auto_order_if_payment' ) ) ) {
+			VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Log::wc_log( "3-$order_id: payment - " . var_export( $order->get_payment_method(), true ), 'debug', 'debug' );
+
+			return;
+		}
+		if ( ! in_array( 'wc-' . $order->get_status(), self::$settings->get_params( 'auto_order_if_status' ) ) ) {
+			VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Log::wc_log( "4-$order_id: status - " . var_export( $order->get_status(), true ), 'debug', 'debug' );
+
 			return;
 		}
 		self::$check_order = true;
@@ -70,9 +70,19 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 			foreach ( $order_items as $order_item_id => $order_item ) {
 				$get_item = self::get_item_data( $order_item_id, '', $customer_info, $order );
 				if ( $get_item['status'] === 'success' ) {
-					$product_items[] = $get_item['product_items'];
-					$item_ids[]      = $order_item_id;
-					$store_num       = self::get_store_num( $order->get_item( $order_item_id ) );
+					$item_exists = false;
+					foreach ( $product_items as &$product_item ) {
+						if ( $product_item['product_id'] == $get_item['product_items']['product_id'] && $product_item['sku_attr'] == $get_item['product_items']['sku_attr'] ) {
+							$product_item['product_count'] += $get_item['product_items']['product_count'];
+							$item_exists                   = true;
+							break;
+						}
+					}
+					if ( ! $item_exists ) {
+						$product_items[] = $get_item['product_items'];
+					}
+					$item_ids[] = $order_item_id;
+					$store_num  = self::get_store_num( $order->get_item( $order_item_id ) );
 					if ( $store_num ) {
 						if ( ! isset( $order_item_ids_by_store[ $store_num ] ) ) {
 							$order_item_ids_by_store[ $store_num ] = array();
@@ -165,7 +175,11 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 				} else {
 					self::log( sprintf( esc_html__( 'Order #%s: %s.', 'woocommerce-alidropship' ), $order_id, $get_sign['data'] ) );
 				}
+			} else {
+				VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Log::wc_log( "5-$order_id: no items", 'debug', 'debug' );
 			}
+		} else {
+			self::log( sprintf( esc_html__( 'Order #%s: Missing access token.', 'woocommerce-alidropship' ), $order_id ) );
 		}
 	}
 
@@ -323,9 +337,19 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 							$detail['message']       = '';
 							$get_item                = self::get_item_data( $order_item_id, isset( $order_item_data['shipping_company'] ) ? $order_item_data['shipping_company'] : '', $customer_info, $order );
 							if ( $get_item['status'] === 'success' ) {
-								$product_items[] = $get_item['product_items'];
-								$item_ids[]      = $order_item_id;
-								$store_num       = self::get_store_num( $order->get_item( $order_item_id ) );
+								$item_exists = false;
+								foreach ( $product_items as &$product_item ) {
+									if ( $product_item['product_id'] == $get_item['product_items']['product_id'] && $product_item['sku_attr'] == $get_item['product_items']['sku_attr'] ) {
+										$product_item['product_count'] += $get_item['product_items']['product_count'];
+										$item_exists                   = true;
+										break;
+									}
+								}
+								if ( ! $item_exists ) {
+									$product_items[] = $get_item['product_items'];
+								}
+								$item_ids[] = $order_item_id;
+								$store_num  = self::get_store_num( $order->get_item( $order_item_id ) );
 								if ( $store_num ) {
 									$store_num = strval( $store_num );
 									if ( ! isset( $order_item_ids_by_store[ $store_num ] ) ) {
@@ -645,6 +669,12 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 
 			return $response;
 		}
+		if ( $item->get_meta( '_vi_wad_aliexpress_order_id', true ) ) {
+			$response['status']  = 'exist';
+			$response['message'] = esc_html__( 'Ali order exists', 'woocommerce-alidropship' );
+
+			return $response;
+		}
 		$woo_product = is_callable( array(
 			$item,
 			'get_product'
@@ -689,10 +719,20 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 				}
 			}
 			$shipping_country = $order->get_shipping_country();
+			$state            = $city = '';
 			if ( ! $shipping_country ) {
 				$shipping_country = $order->get_billing_country();
+				if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $shipping_country ) ) {
+					$state = $order->get_billing_state();
+					$city  = $order->get_billing_city();
+				}
+			} else {
+				if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $shipping_country ) ) {
+					$state = $order->get_shipping_state();
+					$city  = $order->get_shipping_city();
+				}
 			}
-			$freights = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_ali_shipping_by_woo_id( $wpml_product_id ? $wpml_product_id : $woo_product_id, $shipping_country, $ship_from, $quantity );
+			$freights = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_ali_shipping_by_woo_id( $wpml_product_id ? $wpml_product_id : $woo_product_id, $shipping_country, $ship_from, $quantity, $state, $city );
 			if ( count( $freights ) && ! empty( $freights[0]['company'] ) ) {
 				$shipping_company = $freights[0]['company'];
 			}
@@ -739,11 +779,6 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 		}
 		if ( $customer_info['country'] === 'CL' && ! $customer_info['rutNo'] ) {
 			$response['message'] = esc_html__( 'RUT number is mandatory for Chilean customers', 'woocommerce-alidropship' );
-
-			return $response;
-		}
-		if ( $item->get_meta( '_vi_wad_aliexpress_order_id', true ) ) {
-			$response['message'] = esc_html__( 'Ali order exists', 'woocommerce-alidropship' );
 
 			return $response;
 		}
@@ -805,7 +840,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 			wp_enqueue_script( 'woocommerce-alidropship-ali-orders', VI_WOOCOMMERCE_ALIDROPSHIP_JS . 'ali-orders.js', array( 'jquery' ), VI_WOOCOMMERCE_ALIDROPSHIP_VERSION );
 			self::$order_status = ! empty( $_GET['order_status'] ) ? sanitize_text_field( $_GET['order_status'] ) : 'to_order';
 			wp_localize_script( 'woocommerce-alidropship-ali-orders', 'vi_wad_ali_orders', array(
-				'currency'              => get_woocommerce_currency_symbol(),
+				'currency'              => get_woocommerce_currency_symbol( get_option( 'woocommerce_currency' ) ),
 				'decimals'              => wc_get_price_decimals(),
 				'url'                   => admin_url( 'admin-ajax.php' ),
 				'_vi_wad_ajax_nonce'    => VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings::create_ajax_nonce(),
@@ -928,10 +963,20 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 	 */
 	public static function get_shipping_html( $product_id, $woo_product_id, $order, $saved_shipping, $ship_from, $quantity, $use_different_currency, &$freights, &$shipping_total, &$placeable_items_count, &$shipping_company ) {
 		$shipping_country = $order->get_shipping_country();
+		$state            = $city = '';
 		if ( ! $shipping_country ) {
 			$shipping_country = $order->get_billing_country();
+			if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $shipping_country ) ) {
+				$state = $order->get_billing_state();
+				$city  = $order->get_billing_city();
+			}
+		} else {
+			if ( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::is_shipping_supported_by_province_city( $shipping_country ) ) {
+				$state = $order->get_shipping_state();
+				$city  = $order->get_shipping_city();
+			}
 		}
-		$freights         = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_ali_shipping_by_woo_id( $woo_product_id, $shipping_country, $ship_from, $quantity );
+		$freights         = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_ali_shipping_by_woo_id( $woo_product_id, $shipping_country, $ship_from, $quantity, $state, $city );
 		$shipping_company = isset( $saved_shipping['company'] ) ? $saved_shipping['company'] : '';
 		if ( ! $shipping_company ) {
 			$product_shipping = get_post_meta( $product_id, '_vi_wad_shipping_info', true );
@@ -1189,8 +1234,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 			$pagination_html             = ob_get_clean();
 			$key                         = 0;
 			$currency                    = 'USD';
-			$woocommerce_currency        = get_woocommerce_currency();
-			$woocommerce_currency_symbol = get_woocommerce_currency_symbol();
+			$woocommerce_currency        = get_option( 'woocommerce_currency' );
+			$woocommerce_currency_symbol = get_woocommerce_currency_symbol( $woocommerce_currency );
 			$use_different_currency      = false;
 			if ( strtolower( $woocommerce_currency ) !== strtolower( $currency ) ) {
 				$use_different_currency = true;
@@ -1204,10 +1249,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 					$is_wpml = true;
 				}
 			}
-			while ( $the_query->have_posts() ) {
-				$the_query->the_post();
-				$order_id = get_the_ID();
-				$order    = wc_get_order( $order_id );
+			foreach ( $the_query->posts as $order_id ) {
+				$order = wc_get_order( $order_id );
 				if ( $order ) {
 					$order_currency = $order->get_currency() ? $order->get_currency() : $woocommerce_currency;
 					$order_items    = $order->get_items();
@@ -2032,9 +2075,18 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
 														?>
                                                         <a href="<?php echo esc_url( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_to_order_aliexpress_url( $order_id, $ali_pid ) ); ?>"
                                                            target="_blank"
-                                                           class="vi-ui labeled icon button positive mini"><i
+                                                           class="vi-ui labeled icon button positive mini <?php echo esc_attr( self::set( array(
+															   'order-with-extension',
+															   'hidden'
+														   ) ) ) ?>"><i
                                                                     class="icon external"></i>
 															<?php esc_html_e( 'Order with Extension', 'woocommerce-alidropship' ); ?>
+                                                        </a>
+                                                        <a target="_blank"
+                                                           href="https://downloads.villatheme.com/?download=alidropship-extension"
+                                                           title="<?php esc_attr_e( 'To fulfill this order manually, please install the chrome extension', 'woocommerce-alidropship' ) ?>"
+                                                           class="vi-ui positive button labeled icon mini <?php echo esc_attr( self::set( 'download-chrome-extension' ) ) ?>"><i
+                                                                    class="external icon"></i><?php esc_html_e( 'Install Extension', 'woocommerce-alidropship' ) ?>
                                                         </a>
 														<?php
 													}
@@ -2124,7 +2176,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Ali_Orders {
             <h2><?php esc_html_e( 'AliExpress orders', 'woocommerce-alidropship' ) ?><a
                         class="vi-ui labeled icon button mini <?php echo esc_attr( self::set( 'aliexpress-sync' ) ) ?>"
                         target="_blank"
-                        title="<?php esc_attr_e( 'Sync orders with chrome extension', 'woocommerce-alidropship' ) ?>"
+                        title="<?php esc_attr_e( 'Sync orders with AliExpress using chrome extension', 'woocommerce-alidropship' ) ?>"
                         href="<?php echo esc_url( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_get_tracking_url() ) ?>"><i
                             class="icon external"></i><?php esc_html_e( 'AliExpress sync', 'woocommerce-alidropship' ) ?>
                 </a></h2>

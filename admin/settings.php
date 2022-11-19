@@ -40,8 +40,20 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 		add_action( 'wp_ajax_wad_get_exchange_rate', array( $this, 'get_exchange_rate_ajax' ) );
 		add_action( 'wp_ajax_wad_save_access_token', array( $this, 'save_access_token' ) );
 		add_action( 'wp_ajax_wad_remove_access_token', array( $this, 'remove_access_token' ) );
+		add_action( 'wp_ajax_wad_get_custom_rule_html', array( $this, 'get_custom_rule_html' ) );
 		add_filter( 'cron_schedules', array( $this, 'cron_schedules' ) );
 		add_action( 'vi_wad_auto_update_exchange_rate', array( $this, 'auto_update_exchange_rate' ) );
+	}
+
+	public function get_custom_rule_html() {
+		self::check_ajax_referer();
+		ob_start();
+		self::custom_rule_html( 0, VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_default_custom_rules() );
+		$html = ob_get_clean();
+		wp_send_json( array(
+			'status' => 'success',
+			'data'   => $html
+		) );
 	}
 
 	public function check_update() {
@@ -86,7 +98,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 			}
 			$args                  = self::$settings->get_params();
 			$access_tokens[]       = $access_token;
-			$args['access_tokens'] = $access_tokens;
+			$args['access_tokens'] = array_values( $access_tokens );
 			$args['access_token']  = $access_token['access_token'];
 			update_option( 'wooaliexpressdropship_params', $args );
 			ob_start();
@@ -134,9 +146,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 	}
 
 	public function auto_update_exchange_rate() {
-		$exchange_rate_api        = self::$settings->get_params( 'exchange_rate_api' );
-		$import_currency_rate_CNY = self::$settings->get_params( 'import_currency_rate_CNY' );
-		$args                     = self::$settings->get_params();
+		$exchange_rate_api = self::$settings->get_params( 'exchange_rate_api' );
+		$args              = self::$settings->get_params();
 		if ( self::$settings->get_params( 'exchange_rate_auto' ) && $exchange_rate_api ) {
 			$update = false;
 			$rate   = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_exchange_rate( $exchange_rate_api );
@@ -144,12 +155,16 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 				$args['import_currency_rate'] = $rate;
 				$update                       = true;
 			}
-			if ( $import_currency_rate_CNY ) {
-				/*Only update this rate if it's previously set on purpose*/
-				$rate = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_exchange_rate( $exchange_rate_api, 'USD', 2, 'CNY' );
-				if ( $rate ) {
-					$args['import_currency_rate_CNY'] = $rate;
-					$update                           = true;
+			foreach ( array( 'CNY', 'RUB' ) as $custom_currency ) {
+				$custom_rate = self::$settings->get_params( "import_currency_rate_{$custom_currency}" );
+				if ( $custom_rate ) {
+					sleep( 1 );
+					/*Only update this rate if it's previously set on purpose*/
+					$rate = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_exchange_rate( $exchange_rate_api, 'USD', $custom_currency === 'CNY' ? 2 : 3, $custom_currency );
+					if ( $rate ) {
+						$args["import_currency_rate_{$custom_currency}"] = $rate;
+						$update                                          = true;
+					}
 				}
 			}
 			if ( $update ) {
@@ -194,7 +209,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 			if ( $currency === 'USD' ) {
 				$get_exchange_rate = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_exchange_rate( $api );
 			} else {
-				$get_exchange_rate = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_exchange_rate( $api, 'USD', 2, $currency );
+				$get_exchange_rate = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_exchange_rate( $api, 'USD', $currency === 'CNY' ? 2 : 3, $currency );
 			}
 			if ( $get_exchange_rate !== false ) {
 				$response['status'] = 'success';
@@ -265,9 +280,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 
 			$the_query = new WP_Query( $args );
 			if ( $the_query->have_posts() ) {
-				while ( $the_query->have_posts() ) {
-					$the_query->the_post();
-					$product_id = get_the_ID();
+				foreach ( $the_query->posts as $product_id ) {
 					$attributes = get_post_meta( $product_id, '_vi_wad_attributes', true );
 					foreach ( $attributes as $key => $attribute ) {
 						if ( isset( $attribute['slug'] ) ) {
@@ -513,7 +526,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 			'post_type'      => 'product',
 			'posts_per_page' => 50,
 			's'              => $keyword,
-			'post_status'    => apply_filters( 'vi_wad_search_product_statuses', $post_status )
+			'post_status'    => apply_filters( 'vi_wad_search_product_statuses', $post_status ),
+			'fields'         => 'ids',
 		);
 		if ( $exclude_ali_products ) {
 			$arg['meta_query'] = array(
@@ -527,12 +541,10 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 		$the_query      = new WP_Query( apply_filters( 'vi_wad_ajax_search_products_query', $arg ) );
 		$found_products = array();
 		if ( $the_query->have_posts() ) {
-			while ( $the_query->have_posts() ) {
-				$the_query->the_post();
-				$product_id       = get_the_ID();
+			foreach ( $the_query->posts as $product_id ) {
 				$found_products[] = array(
 					'id'   => $product_id,
-					'text' => "(#{$product_id}) " . get_the_title()
+					'text' => "(#{$product_id}) " . get_the_title( $product_id )
 				);
 			}
 		}
@@ -729,6 +741,13 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 						} else {
 							$args[ $key ] = sanitize_text_field( stripslashes( $_POST[ 'wad_' . $key ] ) );
 						}
+					} elseif ( in_array( $key, array(
+						'show_shipping_option',
+						'shipping_cost_after_price_rules',
+						'use_external_image',
+						'use_global_attributes',
+					) ) ) {
+						$args[ $key ] = '';
 					}
 				}
 			} else {
@@ -749,6 +768,11 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 						}
 					}
 				}
+			}
+			/*Adjust custom rules*/
+			$args['update_product_custom_rules'] = array_values( $args['update_product_custom_rules'] );
+			foreach ( $args['update_product_custom_rules'] as &$custom_rule ) {
+				$custom_rule = array_merge( VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_default_custom_rules(), $custom_rule );
 			}
 			$args['shipping_company_mapping']    = array_merge( $shipping_company_mapping, $args['shipping_company_mapping'] );
 			$args['attributes_mapping_per_page'] = isset( $_POST['vi-wad-attributes-mapping-table_length'] ) ? sanitize_text_field( $_POST['vi-wad-attributes-mapping-table_length'] ) : '';
@@ -836,12 +860,27 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 				}
 				$args['string_replace'] = $strings_replaces;
 			}
+			/*Specification replace*/
+			if ( ! empty( $args['specification_replace']['from_name'] ) && is_array( $args['specification_replace']['from_name'] ) ) {
+				$strings          = $args['specification_replace']['from_name'];
+				$strings_replaces = array(
+					'from_name' => array(),
+					'to_name'   => array(),
+					'sensitive' => array(),
+					'new_value' => array(),
+				);
+				$count            = count( $strings );
+				for ( $i = 0; $i < $count; $i ++ ) {
+					if ( $strings[ $i ] !== '' ) {
+						$strings_replaces['from_name'][] = $args['specification_replace']['from_name'][ $i ];
+						$strings_replaces['to_name'][]   = $args['specification_replace']['to_name'][ $i ];
+						$strings_replaces['sensitive'][] = $args['specification_replace']['sensitive'][ $i ];
+						$strings_replaces['new_value'][] = $args['specification_replace']['new_value'][ $i ];
+					}
+				}
+				$args['specification_replace'] = $strings_replaces;
+			}
 			/*Carrier name replace*/
-			$args['carrier_name_replaces'] = isset( $_POST['vi-wad-carrier_name_replaces'] ) ? self::stripslashes_deep( $_POST['vi-wad-carrier_name_replaces'] ) : array(
-				'from_string' => array(),
-				'to_string'   => array(),
-				'sensitive'   => array(),
-			);
 			if ( ! empty( $args['carrier_name_replaces']['from_string'] ) && is_array( $args['carrier_name_replaces']['from_string'] ) ) {
 				$strings_replaces = array(
 					'from_string' => array(),
@@ -859,11 +898,6 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 				$args['carrier_name_replaces'] = $strings_replaces;
 			}
 			/*Carrier url replace*/
-			$args['carrier_url_replaces'] = isset( $_POST['vi-wad-carrier_url_replaces'] ) ? self::stripslashes_deep( $_POST['vi-wad-carrier_url_replaces'] ) : array(
-				'from_string' => array(),
-				'to_string'   => array(),
-				'sensitive'   => array(),
-			);
 			if ( ! empty( $args['carrier_url_replaces']['from_string'] ) && is_array( $args['carrier_url_replaces']['from_string'] ) ) {
 				$strings_replaces = array(
 					'from_string' => array(),
@@ -1055,7 +1089,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 	 *
 	 */
 	public function page_callback() {
-		self::settings_page_html( apply_filters( 'vi_wad_admin_menu_capability', 'manage_options', 'woocommerce-alidropship' ) );
+		self::settings_page_html( current_user_can( apply_filters( 'vi_wad_admin_access_full_settings_capability', apply_filters( 'vi_wad_admin_menu_capability', 'manage_options', 'woocommerce-alidropship' ) ) ) );
 	}
 
 	public static function settings_page_html( $is_main = true ) {
@@ -1093,9 +1127,15 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                         <div class="item <?php self::set_params( 'tab-item', true ) ?>" data-tab="video">
 							<?php esc_html_e( 'Product Video', 'woocommerce-alidropship' ) ?>
                         </div>
-                        <div class="item <?php self::set_params( 'tab-item', true ) ?>" data-tab="product_update">
-							<?php esc_html_e( 'Product Sync', 'woocommerce-alidropship' ) ?>
-                        </div>
+						<?php
+					}
+					?>
+                    <div class="item <?php self::set_params( 'tab-item', true ) ?>" data-tab="product_update">
+						<?php esc_html_e( 'Product Sync', 'woocommerce-alidropship' ) ?>
+                    </div>
+					<?php
+					if ( $is_main ) {
+						?>
                         <div class="item <?php self::set_params( 'tab-item', true ) ?>" data-tab="product_split">
 							<?php esc_html_e( 'Product Splitting', 'woocommerce-alidropship' ) ?>
                         </div>
@@ -1194,7 +1234,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                                id="<?php self::set_params( 'secret_key', true ) ?>"
                                                class="<?php self::set_params( 'secret_key', true ) ?>">
                                     </div>
-                                    <p><?php esc_html_e( 'Enter this key when using extension to connect the extension with your store. This cannot be empty.', 'woocommerce-alidropship' ) ?></p>
+                                    <p><?php esc_html_e( 'Secret key is one of the two ways to connect the chrome extension with your store. The other way is to use WooCommerce authentication.', 'woocommerce-alidropship' ) ?></p>
+                                    <p class="vi-wad-connect-extension-desc vi-wad-hidden"><?php esc_html_e( 'To let the chrome extension connect with this store, please click the "Connect the Extension" button below.', 'woocommerce-alidropship' ) ?></p>
                                 </td>
                             </tr>
                             <tr>
@@ -1210,11 +1251,30 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                 </td>
                             </tr>
                             <tr>
-                                <td colspan="2" style="text-align: center">
-                                    <iframe width="560" height="315"
-                                            src="https://www.youtube-nocookie.com/embed/eCt8sJVsBXk" frameborder="0"
-                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                            allowfullscreen></iframe>
+                                <td></td>
+                                <td>
+                                    <div class="vi-ui styled fluid accordion">
+                                        <div class="title active"><i
+                                                    class="dropdown icon"></i><?php esc_html_e( 'Install and connect the chrome extension', 'woocommerce-alidropship' ) ?>
+                                        </div>
+                                        <div class="content active" style="text-align: center">
+                                            <iframe width="560" height="315"
+                                                    src="https://www.youtube-nocookie.com/embed/eO_C_b4ZQmo"
+                                                    title="YouTube video player" frameborder="0"
+                                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                    allowfullscreen></iframe>
+                                        </div>
+                                        <div class="title"><i
+                                                    class="dropdown icon"></i><?php esc_html_e( 'How to use this plugin?', 'woocommerce-alidropship' ) ?>
+                                        </div>
+                                        <div class="content" style="text-align: center">
+                                            <iframe width="560" height="315"
+                                                    src="https://www.youtube-nocookie.com/embed/eCt8sJVsBXk"
+                                                    frameborder="0"
+                                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                    allowfullscreen></iframe>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
 							<?php
@@ -1305,46 +1365,51 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                 <p><?php esc_html_e( 'If you increase the "Number of items per page" using in the Screen options on each page above too high and the page can not be fully loaded, you can use this option to decrease the value accordingly.', 'woocommerce-alidropship' ) ?></p>
                             </td>
                         </tr>
-                        <tr>
-                            <th>
-                                <label><?php esc_html_e( 'Show menu count', 'woocommerce-alidropship' ) ?></label>
-                            </th>
-                            <td>
-                                <select id="<?php self::set_params( 'show_menu_count', true ) ?>"
-                                        class="vi-ui dropdown" multiple
-                                        name="<?php self::set_params( 'show_menu_count', false, true ) ?>">
-									<?php
-									$show_menu_count = self::$settings->get_params( 'show_menu_count' );
-									foreach (
-										array(
-											'import_list'   => esc_html__( 'Import List', 'woocommerce-alidropship' ),
-											'imported'      => esc_html__( 'Imported', 'woocommerce-alidropship' ),
-											'ali_orders'    => esc_html__( 'Ali Orders', 'woocommerce-alidropship' ),
-											'failed_images' => esc_html__( 'Failed Images', 'woocommerce-alidropship' ),
-										) as $option_k => $menu
-									) {
-										$selected = '';
-										if ( in_array( $option_k, $show_menu_count ) ) {
-											$selected = 'selected';
+						<?php
+						if ( $is_main ) {
+							?>
+                            <tr>
+                                <th>
+                                    <label><?php esc_html_e( 'Show menu count', 'woocommerce-alidropship' ) ?></label>
+                                </th>
+                                <td>
+                                    <select id="<?php self::set_params( 'show_menu_count', true ) ?>"
+                                            class="vi-ui dropdown" multiple
+                                            name="<?php self::set_params( 'show_menu_count', false, true ) ?>">
+										<?php
+										$show_menu_count = self::$settings->get_params( 'show_menu_count' );
+										foreach (
+											array(
+												'import_list'   => esc_html__( 'Import List', 'woocommerce-alidropship' ),
+												'imported'      => esc_html__( 'Imported', 'woocommerce-alidropship' ),
+												'ali_orders'    => esc_html__( 'Ali Orders', 'woocommerce-alidropship' ),
+												'failed_images' => esc_html__( 'Failed Images', 'woocommerce-alidropship' ),
+											) as $option_k => $menu
+										) {
+											$selected = '';
+											if ( in_array( $option_k, $show_menu_count ) ) {
+												$selected = 'selected';
+											}
+											?>
+                                            <option value="<?php echo esc_attr( $option_k ) ?>" <?php echo esc_attr( $selected ) ?>><?php echo esc_html( $menu ); ?></option>
+											<?php
 										}
 										?>
-                                        <option value="<?php echo esc_attr( $option_k ) ?>" <?php echo esc_attr( $selected ) ?>><?php echo esc_html( $menu ); ?></option>
-										<?php
-									}
-									?>
-                                </select>
-                                <p><?php esc_html_e( 'Select elements that you want to show menu count for.', 'woocommerce-alidropship' ) ?></p>
-                            </td>
-                        </tr>
+                                    </select>
+                                    <p><?php esc_html_e( 'Select elements that you want to show menu count for.', 'woocommerce-alidropship' ) ?></p>
+                                </td>
+                            </tr>
+							<?php
+						}
+						?>
                         </tbody>
                     </table>
                 </div>
-				<?php
-				if ( $is_main ) {
-					?>
-                    <div class="vi-ui bottom attached tab segment <?php self::set_params( 'tab-content', true ) ?>"
-                         data-tab="product_update">
-						<?php
+
+                <div class="vi-ui bottom attached tab segment <?php self::set_params( 'tab-content', true ) ?>"
+                     data-tab="product_update">
+					<?php
+					if ( $is_main ) {
 						if ( self::$update_product_next_schedule ) {
 							$gmt_offset = intval( get_option( 'gmt_offset' ) );
 							?>
@@ -1454,256 +1519,313 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                     </div>
                                 </td>
                             </tr>
+                            <tr class="<?php echo esc_attr( self::set( $update_product_options_class ) ) ?>">
+                                <th>
+                                    <label for="<?php self::set_params( 'update_product_http_only', true ) ?>"><?php esc_html_e( 'Use HTTP service URL', 'woocommerce-alidropship' ) ?></label>
+                                <td>
+                                    <div class="vi-ui toggle checkbox">
+                                        <input type="checkbox"
+                                               name="<?php self::set_params( 'update_product_http_only' ) ?>"
+                                               id="<?php self::set_params( 'update_product_http_only', true ) ?>"
+                                               class="<?php self::set_params( 'update_product_http_only', true ) ?>"
+                                               value="1" <?php checked( self::$settings->get_params( 'update_product_http_only' ), 1 ) ?>>
+                                        <label><?php esc_html_e( 'Enable this if your products are unable to be synced due to "Connection timed out" error. To check this, please go to Logs', 'woocommerce-alidropship' ) ?></label>
+                                    </div>
+                                </td>
+                            </tr>
                             </tbody>
                         </table>
-                        <div class="vi-ui message positive">
-							<?php esc_html_e( 'Configure what the plugin will do when you sync products both automatically via API and manually with the chrome extension', 'woocommerce-alidropship' ) ?>
-                        </div>
-                        <table class="form-table">
-                            <tbody>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_statuses', true ) ?>"><?php esc_html_e( 'Product status', 'woocommerce-alidropship' ) ?></label>
-                                </th>
-                                <td>
-                                    <select id="<?php self::set_params( 'update_product_statuses', true ) ?>"
-                                            class="vi-ui dropdown" multiple
-                                            name="<?php self::set_params( 'update_product_statuses', false, true ) ?>">
-										<?php
-										$product_statuses        = array(
-											'publish' => esc_html__( 'Publish', 'woocommerce-alidropship' ),
-											'pending' => esc_html__( 'Pending', 'woocommerce-alidropship' ),
-											'draft'   => esc_html__( 'Draft', 'woocommerce-alidropship' ),
-											'private' => esc_html__( 'Private', 'woocommerce-alidropship' ),
-										);
-										$update_product_statuses = self::$settings->get_params( 'update_product_statuses' );
-										foreach ( $product_statuses as $option_k => $update_product_status ) {
-											$selected = '';
-											if ( in_array( $option_k, $update_product_statuses ) ) {
-												$selected = 'selected';
-											}
-											?>
-                                            <option value="<?php echo esc_attr( $option_k ) ?>" <?php echo esc_attr( $selected ) ?>><?php echo esc_html( $update_product_status ); ?></option>
-											<?php
+						<?php
+					}
+					?>
+                    <div class="vi-ui message positive">
+						<?php esc_html_e( 'Configure what the plugin will do when you sync products both automatically via API and manually with the chrome extension', 'woocommerce-alidropship' ) ?>
+                    </div>
+                    <table class="form-table">
+                        <tbody>
+                        <tr>
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_statuses', true ) ?>"><?php esc_html_e( 'Product status', 'woocommerce-alidropship' ) ?></label>
+                            </th>
+                            <td>
+                                <select id="<?php self::set_params( 'update_product_statuses', true ) ?>"
+                                        class="vi-ui dropdown" multiple
+                                        name="<?php self::set_params( 'update_product_statuses', false, true ) ?>">
+									<?php
+									$product_statuses        = array(
+										'publish' => esc_html__( 'Publish', 'woocommerce-alidropship' ),
+										'pending' => esc_html__( 'Pending', 'woocommerce-alidropship' ),
+										'draft'   => esc_html__( 'Draft', 'woocommerce-alidropship' ),
+										'private' => esc_html__( 'Private', 'woocommerce-alidropship' ),
+									);
+									$update_product_statuses = self::$settings->get_params( 'update_product_statuses' );
+									foreach ( $product_statuses as $option_k => $update_product_status ) {
+										$selected = '';
+										if ( in_array( $option_k, $update_product_statuses ) ) {
+											$selected = 'selected';
 										}
 										?>
-                                    </select>
-                                    <p><?php esc_html_e( 'Only sync products with selected statuses. Leave empty to select all statuses.', 'woocommerce-alidropship' ) ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_price', true ) ?>"><?php esc_html_e( 'Sync price', 'woocommerce-alidropship' ) ?></label>
-                                </th>
-                                <td>
-                                    <div class="vi-ui toggle checkbox">
-                                        <input id="<?php self::set_params( 'update_product_price', true ) ?>"
-                                               type="checkbox" <?php checked( self::$settings->get_params( 'update_product_price' ), 1 ) ?>
-                                               tabindex="0"
-                                               class="<?php self::set_params( 'update_product_price', true ) ?>"
-                                               value="1"
-                                               name="<?php self::set_params( 'update_product_price' ) ?>"/>
-                                        <label><?php esc_html_e( 'Sync price of WooCommerce products with AliExpress. All rules in Product Price tab will be applied to new price.', 'woocommerce-alidropship' ) ?></label>
+                                        <option value="<?php echo esc_attr( $option_k ) ?>" <?php echo esc_attr( $selected ) ?>><?php echo esc_html( $update_product_status ); ?></option>
+										<?php
+									}
+									?>
+                                </select>
+                                <p><?php esc_html_e( 'Only sync products with selected statuses. Leave empty to select all statuses.', 'woocommerce-alidropship' ) ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_attributes', true ) ?>"><?php esc_html_e( 'Sync attributes', 'woocommerce-alidropship' ) ?></label>
+                            </th>
+                            <td>
+                                <div class="vi-ui toggle checkbox">
+                                    <input id="<?php self::set_params( 'update_product_attributes', true ) ?>"
+                                           type="checkbox" <?php checked( self::$settings->get_params( 'update_product_attributes' ), 1 ) ?>
+                                           tabindex="0"
+                                           class="<?php self::set_params( 'update_product_attributes', true ) ?>"
+                                           value="1"
+                                           name="<?php self::set_params( 'update_product_attributes' ) ?>"/>
+                                    <label><?php esc_html_e( 'Sync attributes of products by applying attribute mapping rules', 'woocommerce-alidropship' ) ?></label>
+                                </div>
+                                <p><?php _e( '<strong>Caution:</strong> This is a heavy task hence it may cause the sync slower. Therefore, you should only enable this when needed', 'woocommerce-alidropship' ) ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_price', true ) ?>"><?php esc_html_e( 'Sync price', 'woocommerce-alidropship' ) ?></label>
+                            </th>
+                            <td>
+                                <div class="vi-ui toggle checkbox">
+                                    <input id="<?php self::set_params( 'update_product_price', true ) ?>"
+                                           type="checkbox" <?php checked( self::$settings->get_params( 'update_product_price' ), 1 ) ?>
+                                           tabindex="0"
+                                           class="<?php self::set_params( 'update_product_price', true ) ?>"
+                                           value="1"
+                                           name="<?php self::set_params( 'update_product_price' ) ?>"/>
+                                    <label><?php esc_html_e( 'Sync price of WooCommerce products with AliExpress. All rules in Product Price tab will be applied to new price.', 'woocommerce-alidropship' ) ?></label>
+                                </div>
+                            </td>
+                        </tr>
+
+                        <tr class="<?php self::set_params( 'update_product_price_dependency', true ) ?>">
+                            <td colspan="2">
+                                <div class="vi-ui segment <?php self::set_params( 'custom_price_rules_wrap', true ) ?>">
+                                    <h4><?php esc_html_e( 'Custom pricing rules for syncing product price. If no rule matched, the original pricing rules in the tab "Product Price" will be used.', 'woocommerce-alidropship' ); ?></h4>
+                                    <div class="<?php self::set_params( 'custom_price_rules_container', true ) ?>">
+										<?php
+										$custom_rules = self::$settings->get_params( 'update_product_custom_rules' );
+										foreach ( $custom_rules as $custom_rule_id => $custom_rule ) {
+											self::custom_rule_html( $custom_rule_id, $custom_rule );
+										}
+										?>
                                     </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_exclude_onsale', true ) ?>"><?php esc_html_e( 'Exclude on-sale products', 'woocommerce-alidropship' ) ?></label>
-                                </th>
-                                <td>
-                                    <div class="vi-ui toggle checkbox">
-                                        <input id="<?php self::set_params( 'update_product_exclude_onsale', true ) ?>"
-                                               type="checkbox" <?php checked( self::$settings->get_params( 'update_product_exclude_onsale' ), 1 ) ?>
-                                               tabindex="0"
-                                               class="<?php self::set_params( 'update_product_exclude_onsale', true ) ?>"
-                                               value="1"
-                                               name="<?php self::set_params( 'update_product_exclude_onsale' ) ?>"/>
-                                        <label><?php esc_html_e( 'Do not sync price if a product is on sale', 'woocommerce-alidropship' ) ?></label>
+                                    <div class="<?php self::set_params( 'custom_price_rule_add_container', true ) ?>"><span
+                                                class="<?php self::set_params( 'custom_price_rule_add', true ) ?> vi-ui button labeled icon positive mini"
+                                                title="<?php esc_attr_e( 'Add a custom price rule', 'woocommerce-alidropship' ) ?>"><i
+                                                    class="icon add"></i><?php esc_html_e( 'Add custom rule', 'woocommerce-alidropship' ); ?></span>
                                     </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_exclude_products', true ) ?>"><?php esc_html_e( 'Exclude products', 'woocommerce-alidropship' ); ?></label>
-                                </th>
-                                <td>
-                                    <select name="<?php self::set_params( 'update_product_exclude_products', false, true ) ?>"
-                                            class="<?php self::set_params( 'update_product_exclude_products', true ) ?> search-product"
-                                            id="<?php self::set_params( 'update_product_exclude_products', true ) ?>"
-                                            multiple="multiple">
-										<?php
-										$excl_products = self::$settings->get_params( 'update_product_exclude_products' );
-										if ( is_array( $excl_products ) && count( $excl_products ) ) {
-											foreach ( $excl_products as $excl_product_id ) {
-												$excl_product = wc_get_product( $excl_product_id );
-												if ( $excl_product ) {
-													?>
-                                                    <option value="<?php echo esc_attr( $excl_product_id ) ?>"
-                                                            selected><?php echo esc_html( $excl_product->get_name() ); ?></option>
-													<?php
-												}
+                                </div>
+                            </td>
+                        </tr>
+
+                        <tr class="<?php self::set_params( 'update_product_price_dependency', true ) ?>">
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_exclude_onsale', true ) ?>"><?php esc_html_e( 'Exclude on-sale products', 'woocommerce-alidropship' ) ?></label>
+                            </th>
+                            <td>
+                                <div class="vi-ui toggle checkbox">
+                                    <input id="<?php self::set_params( 'update_product_exclude_onsale', true ) ?>"
+                                           type="checkbox" <?php checked( self::$settings->get_params( 'update_product_exclude_onsale' ), 1 ) ?>
+                                           tabindex="0"
+                                           class="<?php self::set_params( 'update_product_exclude_onsale', true ) ?>"
+                                           value="1"
+                                           name="<?php self::set_params( 'update_product_exclude_onsale' ) ?>"/>
+                                    <label><?php esc_html_e( 'Do not sync price if a product is on sale', 'woocommerce-alidropship' ) ?></label>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr class="<?php self::set_params( 'update_product_price_dependency', true ) ?>">
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_exclude_products', true ) ?>"><?php esc_html_e( 'Exclude products', 'woocommerce-alidropship' ); ?></label>
+                            </th>
+                            <td>
+                                <select name="<?php self::set_params( 'update_product_exclude_products', false, true ) ?>"
+                                        class="<?php self::set_params( 'update_product_exclude_products', true ) ?> search-product"
+                                        id="<?php self::set_params( 'update_product_exclude_products', true ) ?>"
+                                        multiple="multiple">
+									<?php
+									$excl_products = self::$settings->get_params( 'update_product_exclude_products' );
+									if ( is_array( $excl_products ) && count( $excl_products ) ) {
+										foreach ( $excl_products as $excl_product_id ) {
+											$excl_product = wc_get_product( $excl_product_id );
+											if ( $excl_product ) {
+												?>
+                                                <option value="<?php echo esc_attr( $excl_product_id ) ?>"
+                                                        selected><?php echo esc_html( $excl_product->get_name() ); ?></option>
+												<?php
 											}
 										}
-										?>
-                                    </select>
-                                    <p><?php esc_html_e( 'If you don\'t want to sync price of some specific products, enter them here', 'woocommerce-alidropship' ) ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_exclude_categories', true ) ?>"><?php esc_html_e( 'Exclude categories', 'woocommerce-alidropship' ); ?></label>
-                                </th>
-                                <td>
-                                    <select name="<?php self::set_params( 'update_product_exclude_categories', false, true ) ?>"
-                                            class="<?php self::set_params( 'update_product_exclude_categories', true ) ?> search-category"
-                                            id="<?php self::set_params( 'update_product_exclude_categories', true ) ?>"
-                                            multiple="multiple">
-										<?php
-										$excl_categories = self::$settings->get_params( 'update_product_exclude_categories' );
-										if ( is_array( $excl_categories ) && count( $excl_categories ) ) {
-											foreach ( $excl_categories as $category_id ) {
-												$category = get_term( $category_id );
-												if ( $category ) {
-													?>
-                                                    <option value="<?php echo esc_attr( $category_id ) ?>"
-                                                            selected><?php echo esc_html( $category->name ); ?></option>
-													<?php
-												}
+									}
+									?>
+                                </select>
+                                <p><?php esc_html_e( 'If you don\'t want to sync price of some specific products, enter them here', 'woocommerce-alidropship' ) ?></p>
+                            </td>
+                        </tr>
+                        <tr class="<?php self::set_params( 'update_product_price_dependency', true ) ?>">
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_exclude_categories', true ) ?>"><?php esc_html_e( 'Exclude categories', 'woocommerce-alidropship' ); ?></label>
+                            </th>
+                            <td>
+                                <select name="<?php self::set_params( 'update_product_exclude_categories', false, true ) ?>"
+                                        class="<?php self::set_params( 'update_product_exclude_categories', true ) ?> search-category"
+                                        id="<?php self::set_params( 'update_product_exclude_categories', true ) ?>"
+                                        multiple="multiple">
+									<?php
+									$excl_categories = self::$settings->get_params( 'update_product_exclude_categories' );
+									if ( is_array( $excl_categories ) && count( $excl_categories ) ) {
+										foreach ( $excl_categories as $category_id ) {
+											$category = get_term( $category_id );
+											if ( $category ) {
+												?>
+                                                <option value="<?php echo esc_attr( $category_id ) ?>"
+                                                        selected><?php echo esc_html( $category->name ); ?></option>
+												<?php
 											}
 										}
+									}
+									?>
+                                </select>
+                                <p><?php esc_html_e( 'If you don\'t want to sync price of products from some specific categories, enter them here', 'woocommerce-alidropship' ) ?></p>
+                            </td>
+                        </tr>
+						<?php
+						/*
+						?>
+						<tr>
+							<th>
+								<label for="<?php self::set_params( 'price_change_max', true ) ?>"><?php esc_html_e( 'Skip if change exceeds', 'woocommerce-alidropship' ) ?></label>
+							</th>
+							<td>
+								<div class="vi-ui right labeled input">
+									<input type="number" min="0"
+										   name="<?php self::set_params( 'price_change_max' ) ?>"
+										   id="<?php echo esc_attr( self::set( 'price_change_max' ) ) ?>"
+										   value="<?php echo esc_attr( self::$settings->get_params( 'price_change_max' ) ) ?>">
+									<label for="<?php echo esc_attr( self::set( 'price_change_max' ) ) ?>"
+										   class="vi-ui label"><?php esc_html_e( '%', 'woocommerce-alidropship' ) ?></label>
+								</div>
+								<p><?php esc_html_e( 'Do not sync price if percentage of change in price exceeds this value. Leave 0 or empty to disable this feature.', 'woocommerce-alidropship' ) ?></p>
+							</td>
+						</tr>
+						<?php
+						*/
+						?>
+                        <tr>
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_quantity', true ) ?>"><?php esc_html_e( 'Sync quantity', 'woocommerce-alidropship' ) ?></label>
+                            </th>
+                            <td>
+                                <div class="vi-ui toggle checkbox">
+                                    <input id="<?php self::set_params( 'update_product_quantity', true ) ?>"
+                                           type="checkbox" <?php checked( self::$settings->get_params( 'update_product_quantity' ), 1 ) ?>
+                                           tabindex="0"
+                                           class="<?php self::set_params( 'update_product_quantity', true ) ?>"
+                                           value="1"
+                                           name="<?php self::set_params( 'update_product_quantity' ) ?>"/>
+                                    <label><?php esc_html_e( 'Sync quantity of WooCommerce products with AliExpress', 'woocommerce-alidropship' ) ?></label>
+                                </div>
+                            </td>
+                        </tr>
+						<?php
+						$if_out_of_stock   = self::$settings->get_params( 'update_product_if_out_of_stock' );
+						$if_not_available  = self::$settings->get_params( 'update_product_if_not_available' );
+						$if_shipping_error = self::$settings->get_params( 'update_product_if_shipping_error' );
+						$removed_variation = self::$settings->get_params( 'update_product_removed_variation' );
+						$product_statuses  = array(
+							'outofstock' => esc_html__( 'Set product out-of-stock', 'woocommerce-alidropship' ),
+							'draft'      => esc_html__( 'Change product status to Draft', 'woocommerce-alidropship' ),
+							'pending'    => esc_html__( 'Change product status to Pending', 'woocommerce-alidropship' ),
+							'private'    => esc_html__( 'Change product status to Private', 'woocommerce-alidropship' ),
+							'trash'      => esc_html__( 'Trash product', 'woocommerce-alidropship' ),
+						);
+						?>
+                        <tr>
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_if_out_of_stock', true ) ?>"><?php esc_html_e( 'If a product is out of stock', 'woocommerce-alidropship' ) ?></label>
+                            </th>
+                            <td>
+                                <select id="<?php self::set_params( 'update_product_if_out_of_stock', true ) ?>"
+                                        class="vi-ui dropdown"
+                                        name="<?php self::set_params( 'update_product_if_out_of_stock' ) ?>">
+                                    <option value=""><?php esc_html_e( 'Do nothing', 'woocommerce-alidropship' ) ?></option>
+									<?php
+									foreach ( $product_statuses as $option_k => $update_product_status ) {
 										?>
-                                    </select>
-                                    <p><?php esc_html_e( 'If you don\'t want to sync price of products from some specific categories, enter them here', 'woocommerce-alidropship' ) ?></p>
-                                </td>
-                            </tr>
-							<?php
-							/*
-							?>
-							<tr>
-								<th>
-									<label for="<?php self::set_params( 'price_change_max', true ) ?>"><?php esc_html_e( 'Skip if change exceeds', 'woocommerce-alidropship' ) ?></label>
-								</th>
-								<td>
-									<div class="vi-ui right labeled input">
-										<input type="number" min="0"
-											   name="<?php self::set_params( 'price_change_max' ) ?>"
-											   id="<?php echo esc_attr( self::set( 'price_change_max' ) ) ?>"
-											   value="<?php echo esc_attr( self::$settings->get_params( 'price_change_max' ) ) ?>">
-										<label for="<?php echo esc_attr( self::set( 'price_change_max' ) ) ?>"
-											   class="vi-ui label"><?php esc_html_e( '%', 'woocommerce-alidropship' ) ?></label>
-									</div>
-									<p><?php esc_html_e( 'Do not sync price if percentage of change in price exceeds this value. Leave 0 or empty to disable this feature.', 'woocommerce-alidropship' ) ?></p>
-								</td>
-							</tr>
-							<?php
-							*/
-							?>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_quantity', true ) ?>"><?php esc_html_e( 'Sync quantity', 'woocommerce-alidropship' ) ?></label>
-                                </th>
-                                <td>
-                                    <div class="vi-ui toggle checkbox">
-                                        <input id="<?php self::set_params( 'update_product_quantity', true ) ?>"
-                                               type="checkbox" <?php checked( self::$settings->get_params( 'update_product_quantity' ), 1 ) ?>
-                                               tabindex="0"
-                                               class="<?php self::set_params( 'update_product_quantity', true ) ?>"
-                                               value="1"
-                                               name="<?php self::set_params( 'update_product_quantity' ) ?>"/>
-                                        <label><?php esc_html_e( 'Sync quantity of WooCommerce products with AliExpress', 'woocommerce-alidropship' ) ?></label>
-                                    </div>
-                                </td>
-                            </tr>
-							<?php
-							$if_out_of_stock   = self::$settings->get_params( 'update_product_if_out_of_stock' );
-							$if_not_available  = self::$settings->get_params( 'update_product_if_not_available' );
-							$if_shipping_error = self::$settings->get_params( 'update_product_if_shipping_error' );
-							$removed_variation = self::$settings->get_params( 'update_product_removed_variation' );
-							$product_statuses  = array(
-								'outofstock' => esc_html__( 'Set product out-of-stock', 'woocommerce-alidropship' ),
-								'draft'      => esc_html__( 'Change product status to Draft', 'woocommerce-alidropship' ),
-								'pending'    => esc_html__( 'Change product status to Pending', 'woocommerce-alidropship' ),
-								'private'    => esc_html__( 'Change product status to Private', 'woocommerce-alidropship' ),
-								'trash'      => esc_html__( 'Trash product', 'woocommerce-alidropship' ),
-							);
-							?>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_if_out_of_stock', true ) ?>"><?php esc_html_e( 'If a product is out of stock', 'woocommerce-alidropship' ) ?></label>
-                                </th>
-                                <td>
-                                    <select id="<?php self::set_params( 'update_product_if_out_of_stock', true ) ?>"
-                                            class="vi-ui dropdown"
-                                            name="<?php self::set_params( 'update_product_if_out_of_stock' ) ?>">
-                                        <option value=""><?php esc_html_e( 'Do nothing', 'woocommerce-alidropship' ) ?></option>
+                                        <option value="<?php echo esc_attr( $option_k ) ?>" <?php selected( $option_k, $if_out_of_stock ) ?>><?php echo esc_html( $update_product_status ); ?></option>
 										<?php
-										foreach ( $product_statuses as $option_k => $update_product_status ) {
-											?>
-                                            <option value="<?php echo esc_attr( $option_k ) ?>" <?php selected( $option_k, $if_out_of_stock ) ?>><?php echo esc_html( $update_product_status ); ?></option>
-											<?php
-										}
+									}
+									?>
+                                </select>
+                                <p><?php esc_html_e( 'Select an action when an AliExpress product is out-of-stock', 'woocommerce-alidropship' ) ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_if_not_available', true ) ?>"><?php esc_html_e( 'If a product is no longer available', 'woocommerce-alidropship' ) ?></label>
+                            </th>
+                            <td>
+                                <select id="<?php self::set_params( 'update_product_if_not_available', true ) ?>"
+                                        class="vi-ui dropdown"
+                                        name="<?php self::set_params( 'update_product_if_not_available' ) ?>">
+                                    <option value=""><?php esc_html_e( 'Do nothing', 'woocommerce-alidropship' ) ?></option>
+									<?php
+									foreach ( $product_statuses as $option_k => $update_product_status ) {
 										?>
-                                    </select>
-                                    <p><?php esc_html_e( 'Select an action when an AliExpress product is out-of-stock', 'woocommerce-alidropship' ) ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_if_not_available', true ) ?>"><?php esc_html_e( 'If a product is no longer available', 'woocommerce-alidropship' ) ?></label>
-                                </th>
-                                <td>
-                                    <select id="<?php self::set_params( 'update_product_if_not_available', true ) ?>"
-                                            class="vi-ui dropdown"
-                                            name="<?php self::set_params( 'update_product_if_not_available' ) ?>">
-                                        <option value=""><?php esc_html_e( 'Do nothing', 'woocommerce-alidropship' ) ?></option>
+                                        <option value="<?php echo esc_attr( $option_k ) ?>" <?php selected( $option_k, $if_not_available ) ?>><?php echo esc_html( $update_product_status ); ?></option>
 										<?php
-										foreach ( $product_statuses as $option_k => $update_product_status ) {
-											?>
-                                            <option value="<?php echo esc_attr( $option_k ) ?>" <?php selected( $option_k, $if_not_available ) ?>><?php echo esc_html( $update_product_status ); ?></option>
-											<?php
-										}
+									}
+									?>
+                                </select>
+                                <p><?php esc_html_e( 'Select an action when an AliExpress product is no longer available', 'woocommerce-alidropship' ) ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_if_shipping_error', true ) ?>"><?php esc_html_e( 'If selected shipping method is no longer available', 'woocommerce-alidropship' ) ?></label>
+                            </th>
+                            <td>
+                                <select id="<?php self::set_params( 'update_product_if_shipping_error', true ) ?>"
+                                        class="vi-ui dropdown"
+                                        name="<?php self::set_params( 'update_product_if_shipping_error' ) ?>">
+                                    <option value=""><?php esc_html_e( 'Do nothing', 'woocommerce-alidropship' ) ?></option>
+									<?php
+									foreach ( $product_statuses as $option_k => $update_product_status ) {
 										?>
-                                    </select>
-                                    <p><?php esc_html_e( 'Select an action when an AliExpress product is no longer available', 'woocommerce-alidropship' ) ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_if_shipping_error', true ) ?>"><?php esc_html_e( 'If selected shipping method is no longer available', 'woocommerce-alidropship' ) ?></label>
-                                </th>
-                                <td>
-                                    <select id="<?php self::set_params( 'update_product_if_shipping_error', true ) ?>"
-                                            class="vi-ui dropdown"
-                                            name="<?php self::set_params( 'update_product_if_shipping_error' ) ?>">
-                                        <option value=""><?php esc_html_e( 'Do nothing', 'woocommerce-alidropship' ) ?></option>
+                                        <option value="<?php echo esc_attr( $option_k ) ?>" <?php selected( $option_k, $if_shipping_error ) ?>><?php echo esc_html( $update_product_status ); ?></option>
 										<?php
-										foreach ( $product_statuses as $option_k => $update_product_status ) {
-											?>
-                                            <option value="<?php echo esc_attr( $option_k ) ?>" <?php selected( $option_k, $if_shipping_error ) ?>><?php echo esc_html( $update_product_status ); ?></option>
-											<?php
-										}
-										?>
-                                    </select>
-                                    <p><?php esc_html_e( 'Select an action when an AliExpress product\'s selected shipping method is removed or no shipping methods available', 'woocommerce-alidropship' ) ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th>
-                                    <label for="<?php self::set_params( 'update_product_removed_variation', true ) ?>"><?php esc_html_e( 'If a variation is no longer available', 'woocommerce-alidropship' ) ?></label>
-                                </th>
-                                <td>
-                                    <select id="<?php self::set_params( 'update_product_removed_variation', true ) ?>"
-                                            class="vi-ui dropdown"
-                                            name="<?php self::set_params( 'update_product_removed_variation' ) ?>">
-                                        <option value=""><?php esc_html_e( 'Do nothing', 'woocommerce-alidropship' ) ?></option>
-                                        <option value="disable" <?php selected( 'disable', $removed_variation ) ?>><?php esc_html_e( 'Disable', 'woocommerce-alidropship' ); ?></option>
-                                        <option value="outofstock" <?php selected( 'outofstock', $removed_variation ) ?>><?php esc_html_e( 'Set variation out-of-stock', 'woocommerce-alidropship' ) ?></option>
-                                    </select>
-                                    <p><?php esc_html_e( 'Select an action when a variation of an AliExpress product is no longer available', 'woocommerce-alidropship' ) ?></p>
-                                </td>
-                            </tr>
-							<?php
+									}
+									?>
+                                </select>
+                                <p><?php esc_html_e( 'Select an action when an AliExpress product\'s selected shipping method is removed or no shipping methods available', 'woocommerce-alidropship' ) ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>
+                                <label for="<?php self::set_params( 'update_product_removed_variation', true ) ?>"><?php esc_html_e( 'If a variation is no longer available', 'woocommerce-alidropship' ) ?></label>
+                            </th>
+                            <td>
+                                <select id="<?php self::set_params( 'update_product_removed_variation', true ) ?>"
+                                        class="vi-ui dropdown"
+                                        name="<?php self::set_params( 'update_product_removed_variation' ) ?>">
+                                    <option value=""><?php esc_html_e( 'Do nothing', 'woocommerce-alidropship' ) ?></option>
+                                    <option value="disable" <?php selected( 'disable', $removed_variation ) ?>><?php esc_html_e( 'Disable', 'woocommerce-alidropship' ); ?></option>
+                                    <option value="outofstock" <?php selected( 'outofstock', $removed_variation ) ?>><?php esc_html_e( 'Set variation out-of-stock', 'woocommerce-alidropship' ) ?></option>
+                                </select>
+                                <p><?php esc_html_e( 'Select an action when a variation of an AliExpress product is no longer available', 'woocommerce-alidropship' ) ?></p>
+                            </td>
+                        </tr>
+						<?php
+						if ( $is_main ) {
 							$send_email_if      = self::$settings->get_params( 'send_email_if' );
 							$send_email_options = array(
 								'is_offline'       => esc_html__( 'A product is no longer available', 'woocommerce-alidropship' ),
@@ -1746,9 +1868,15 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                     <p><?php _e( 'Notification will be sent to this address. If not set, the "From" address in <a target="_blank" href="admin.php?page=wc-settings&tab=email">WooCommerce settings/Emails</a> will be used.', 'woocommerce-alidropship' ) ?></p>
                                 </td>
                             </tr>
-                            </tbody>
-                        </table>
-                    </div>
+							<?php
+						}
+						?>
+                        </tbody>
+                    </table>
+                </div>
+				<?php
+				if ( $is_main ) {
+					?>
                     <div class="vi-ui bottom attached tab segment <?php self::set_params( 'tab-content', true ) ?>"
                          data-tab="product_split">
                         <table class="form-table">
@@ -1794,6 +1922,23 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                         <label><?php esc_html_e( 'Instead of deleting old product to create a new one, it will update the overridden old product\'s prices/stock/attributes/variations based on the new data. This way, data such as reviews, metadata... will not be lost.', 'woocommerce-alidropship' ) ?></label>
                                     </div>
                                     <p><?php _e( '<strong>Note:</strong> When reimporting products, this option will always be considered as "Enabled"', 'woocommerce-alidropship' ) ?></p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>
+                                    <label for="<?php self::set_params( 'override_link_only', true ) ?>"><?php esc_html_e( 'Link existing variations only', 'woocommerce-alidropship' ) ?></label>
+                                </th>
+                                <td>
+                                    <div class="vi-ui toggle checkbox">
+                                        <input id="<?php self::set_params( 'override_link_only', true ) ?>"
+                                               type="checkbox" <?php checked( self::$settings->get_params( 'override_link_only' ), 1 ) ?>
+                                               tabindex="0"
+                                               class="<?php self::set_params( 'override_link_only', true ) ?>"
+                                               value="1"
+                                               name="<?php self::set_params( 'override_link_only' ) ?>"/>
+                                        <label><?php esc_html_e( 'Do not create new variations even if the number of variations you select when overriding/reimporting a product is greater than the number of variations of target product.', 'woocommerce-alidropship' ) ?></label>
+                                    </div>
+                                    <p><?php esc_html_e( 'If disabled, new variations will be created if not exist', 'woocommerce-alidropship' ) ?></p>
                                 </td>
                             </tr>
                             <tr>
@@ -1892,7 +2037,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                                class="<?php self::set_params( 'migration_link_only', true ) ?>"
                                                value="1"
                                                name="<?php self::set_params( 'migration_link_only' ) ?>"/>
-                                        <label><?php esc_html_e( 'When migrating a product from other plugins(Map existing Woo product), only link existing variations', 'woocommerce-alidropship' ) ?></label>
+                                        <label><?php esc_html_e( 'When migrating a product from other plugins(Link existing Woo product), only link existing variations', 'woocommerce-alidropship' ) ?></label>
                                     </div>
                                 </td>
                             </tr>
@@ -2033,7 +2178,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                 <div class="header"><?php esc_html_e( '', 'woocommerce-alidropship' ); ?></div>
                                 <ul class="list">
                                     <li><?php esc_html_e( 'Allow vendors to access Import list, Imported page and have their own ALD necessary settings to import and manage AliExpress products that the vendors import.', 'woocommerce-alidropship' ); ?></li>
-                                    <li><?php esc_html_e( 'Product sync can only be set by admin. If vendors\' products are synced by admin(auto or manual), the vendors\' pricing rules are still be used just like when the vendors manually sync their products themselves', 'woocommerce-alidropship' ); ?></li>
+                                    <li><?php esc_html_e( 'If vendors\' products are synced by admin(auto or manual), the vendors\' Product sync settings are still used just like when the vendors manually sync their products themselves', 'woocommerce-alidropship' ); ?></li>
                                     <li><?php _e( '<strong>*Important</strong>: Vendors must import AliExpress products using <strong>Authentication method</strong>', 'woocommerce-alidropship' ); ?></li>
                                 </ul>
                             </div>
@@ -2168,7 +2313,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                            value="<?php echo esc_attr( self::$settings->get_params( 'cpf_custom_meta_key' ) ) ?>">
                                     <p><?php esc_html_e( 'The order meta field that a 3rd party plugin uses to store customer\'s CPF field.', 'woocommerce-alidropship' ) ?></p>
                                     <p><?php esc_html_e( 'This is used only for Customers from Brazil. If empty, billing company will be used as CPF when fulfilling AliExpress orders.', 'woocommerce-alidropship' ) ?></p>
-                                    <p><?php _e( 'If you use <a target="_blank" href="https://wordpress.org/plugins/woocommerce-extra-checkout-fields-for-brazil/">Brazilian Market on WooCommerce</a>, please fill this option with _billing_cpf', 'woocommerce-alidropship' ) ?></p>
+                                    <p><?php _e( 'If you use <a target="_blank" href="https://wordpress.org/plugins/woocommerce-extra-checkout-fields-for-brazil/">Brazilian Market on WooCommerce</a>, please fill this option with <strong>_billing_cpf</strong>', 'woocommerce-alidropship' ) ?></p>
                                 </td>
                             </tr>
                             <tr>
@@ -2891,7 +3036,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                         <label for="<?php self::set_params( 'ali_shipping_not_available_cost', true ) ?>"><?php esc_html_e( 'Default shipping cost', 'woocommerce-alidropship' ) ?></label>
                                     <td>
                                         <div class="vi-ui labeled left input">
-                                            <label class="vi-ui label"><?php echo get_woocommerce_currency_symbol(); ?></label>
+                                            <label class="vi-ui label"><?php echo get_woocommerce_currency_symbol( get_option( 'woocommerce_currency' ) ); ?></label>
                                             <input type="number"
                                                    min="0"
                                                    step="any"
@@ -3085,13 +3230,13 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                             <td>
                                                 <input type="text"
                                                        value="<?php echo esc_attr( isset( $carrier_url_replaces['from_string'][ $i ] ) ? $carrier_url_replaces['from_string'][ $i ] : '' ) ?>"
-                                                       name="<?php echo esc_attr( self::set( 'carrier_url_replaces[from_string][]' ) ) ?>">
+                                                       name="<?php self::set_params( 'carrier_url_replaces[from_string][]' ) ?>">
                                             </td>
                                             <td>
                                                 <input type="text"
-                                                       placeholder="<?php esc_html_e( 'URL of a replacement carrier', 'woocommerce-alidropship' ); ?>"
+                                                       placeholder="<?php esc_attr_e( 'URL of a replacement carrier', 'woocommerce-alidropship' ); ?>"
                                                        value="<?php echo esc_attr( isset( $carrier_url_replaces['to_string'][ $i ] ) ? $carrier_url_replaces['to_string'][ $i ] : '' ) ?>"
-                                                       name="<?php echo esc_attr( self::set( 'carrier_url_replaces[to_string][]' ) ) ?>">
+                                                       name="<?php self::set_params( 'carrier_url_replaces[to_string][]' ) ?>">
                                             </td>
                                             <td>
                                                 <button type="button"
@@ -3154,7 +3299,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                             <td>
                                                 <input type="text"
                                                        value="<?php echo esc_attr( isset( $carrier_name_replaces['from_string'][ $i ] ) ? $carrier_name_replaces['from_string'][ $i ] : '' ) ?>"
-                                                       name="<?php echo esc_attr( self::set( 'carrier_name_replaces[from_string][]' ) ) ?>">
+                                                       name="<?php self::set_params( 'carrier_name_replaces[from_string][]' ) ?>">
                                             </td>
                                             <td>
                                                 <div class="<?php echo esc_attr( self::set( 'string-replace-sensitive-container' ) ) ?>">
@@ -3164,14 +3309,14 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                                     <input type="hidden"
                                                            class="<?php echo esc_attr( self::set( 'string-replace-sensitive-value' ) ) ?>"
                                                            value="<?php echo esc_attr( $case_sensitive ) ?>"
-                                                           name="<?php echo esc_attr( self::set( 'carrier_name_replaces[sensitive][]' ) ) ?>">
+                                                           name="<?php self::set_params( 'carrier_name_replaces[sensitive][]' ) ?>">
                                                 </div>
                                             </td>
                                             <td>
                                                 <input type="text"
-                                                       placeholder="<?php esc_html_e( 'Leave blank to delete matches', 'woocommerce-alidropship' ); ?>"
+                                                       placeholder="<?php esc_attr_e( 'Leave blank to delete matches', 'woocommerce-alidropship' ); ?>"
                                                        value="<?php echo esc_attr( isset( $carrier_name_replaces['to_string'][ $i ] ) ? $carrier_name_replaces['to_string'][ $i ] : '' ) ?>"
-                                                       name="<?php echo esc_attr( self::set( 'carrier_name_replaces[to_string][]' ) ) ?>">
+                                                       name="<?php self::set_params( 'carrier_name_replaces[to_string][]' ) ?>">
                                             </td>
                                             <td>
                                                 <button type="button"
@@ -3287,7 +3432,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                      data-tab="products">
                     <table class="form-table">
                         <tbody>
-                        <tr>
+                        <tr class="<?php self::set_params( 'product_status_container', true ) ?>">
                             <th>
                                 <label for="<?php self::set_params( 'product_status', true ) ?>"><?php esc_html_e( 'Product status', 'woocommerce-alidropship' ) ?></label>
                             </th>
@@ -3348,11 +3493,34 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                            tabindex="0"
                                            class="<?php self::set_params( 'use_global_attributes', true ) ?>" value="1"
                                            name="<?php self::set_params( 'use_global_attributes' ) ?>"/>
-                                    <label><?php _e( 'Global attributes will be used instead of custom attributes. More details about <a href="https://docs.woocommerce.com/document/managing-product-taxonomies/#section-6" target="_blank">Product attributes</a>', 'woocommerce-alidropship' ) ?></label>
+                                    <label><?php _e( 'Global attributes will be used instead of custom attributes. More details about <a href="https://woocommerce.com/document/managing-product-taxonomies/#product-attributes" target="_blank">Product attributes</a>', 'woocommerce-alidropship' ) ?></label>
                                 </div>
                             </td>
                         </tr>
 						<?php
+						/*
+						?>
+						<tr>
+							<th>
+								<label for="<?php self::set_params( 'alternative_attribute_values', true ) ?>">
+									<?php esc_html_e( 'Use alternative attribute values', 'woocommerce-alidropship' ) ?>
+								</label>
+							</th>
+							<td>
+								<div class="vi-ui toggle checkbox">
+									<input id="<?php self::set_params( 'alternative_attribute_values', true ) ?>"
+										   type="checkbox" <?php checked( self::$settings->get_params( 'alternative_attribute_values' ), 1 ) ?>
+										   tabindex="0"
+										   class="<?php self::set_params( 'alternative_attribute_values', true ) ?>" value="1"
+										   name="<?php self::set_params( 'alternative_attribute_values' ) ?>"/>
+									<label><?php _e( 'Yes', 'woocommerce-alidropship' ) ?></label>
+								</div>
+								<p><?php esc_html_e( 'By default, the original attribute values as shown on AliExpress will be used. However, they sometimes do not have meaning and alternative attribute values may be better.', 'woocommerce-alidropship' ) ?></p>
+								<p><?php esc_html_e( 'You can also switch between them while importing products from Import list.', 'woocommerce-alidropship' ) ?></p>
+							</td>
+						</tr>
+						<?php
+						*/
 						if ( $is_main ) {
 							?>
                             <tr>
@@ -3447,29 +3615,51 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                         </tr>
 						<?php
 						if ( $is_main ) {
-							if ( class_exists( 'EXMAGE_WP_IMAGE_LINKS' ) ) {
-								?>
-                                <tr>
-                                    <th>
-                                        <label for="<?php self::set_params( 'use_external_image', true ) ?>">
-											<?php esc_html_e( 'Use external links for images', 'woocommerce-alidropship' ) ?>
-                                        </label>
-                                    </th>
-                                    <td>
-                                        <div class="vi-ui toggle checkbox">
-                                            <input id="<?php self::set_params( 'use_external_image', true ) ?>"
-                                                   type="checkbox" <?php checked( self::$settings->get_params( 'use_external_image' ), 1 ) ?>
-                                                   tabindex="0"
-                                                   class="<?php self::set_params( 'use_external_image', true ) ?>"
-                                                   value="1"
-                                                   name="<?php self::set_params( 'use_external_image' ) ?>"/>
-                                            <label><?php esc_html_e( 'This helps save storage by using original AliExpress image URLs but you will not be able to edit them', 'woocommerce-alidropship' ) ?></label>
-                                        </div>
-                                    </td>
-                                </tr>
-								<?php
-							}
 							?>
+                            <tr>
+                                <th>
+                                    <label for="<?php self::set_params( 'use_external_image', true ) ?>">
+										<?php esc_html_e( 'Use external links for images', 'woocommerce-alidropship' ) ?>
+                                    </label>
+                                </th>
+                                <td>
+                                    <div class="vi-ui toggle checkbox">
+                                        <input id="<?php self::set_params( 'use_external_image', true ) ?>"
+                                               type="checkbox" <?php
+										if ( class_exists( 'EXMAGE_WP_IMAGE_LINKS' ) ) {
+											checked( self::$settings->get_params( 'use_external_image' ), 1 );
+										} else {
+											echo esc_attr( 'disabled' );
+										}
+										?>
+                                               tabindex="0"
+                                               class="<?php self::set_params( 'use_external_image', true ) ?>"
+                                               value="1"
+                                               name="<?php self::set_params( 'use_external_image' ) ?>"/>
+                                        <label><?php esc_html_e( 'This helps save storage by using original AliExpress image URLs but you will not be able to edit them', 'woocommerce-alidropship' ) ?></label>
+                                    </div>
+									<?php
+									if ( ! class_exists( 'EXMAGE_WP_IMAGE_LINKS' ) ) {
+										$plugins     = get_plugins();
+										$plugin_slug = 'exmage-wp-image-links';
+										$plugin      = "{$plugin_slug}/{$plugin_slug}.php";
+										if ( ! isset( $plugins[ $plugin ] ) ) {
+											$button = '<a href="' . esc_url( wp_nonce_url( self_admin_url( "update.php?action=install-plugin&plugin={$plugin_slug}" ), "install-plugin_{$plugin_slug}" ) ) . '" target="_blank" class="button button-primary">' . esc_html__( 'Install now', 'woocommerce-alidropship' ) . '</a>';;
+										} else {
+											$button = '<a href="' . esc_url( wp_nonce_url( add_query_arg( array(
+													'action' => 'activate',
+													'plugin' => $plugin
+												), admin_url( 'plugins.php' ) ), "activate-plugin_{$plugin}" ) ) . '" target="_blank" class="button button-primary">' . esc_html__( 'Activate now', 'woocommerce-alidropship' ) . '</a>';
+										}
+										?>
+                                        <p>
+                                            <strong>*</strong><?php printf( esc_html__( 'To use this feature, you have to install and activate %s plugin. %s', 'woocommerce-alidropship' ), '<a target="_blank" href="https://bit.ly/exmage">EXMAGE – WordPress Image Links</a>', $button ) ?>
+                                        </p>
+										<?php
+									}
+									?>
+                                </td>
+                            </tr>
                             <tr>
                                 <th>
                                     <label for="<?php self::set_params( 'download_description_images', true ) ?>">
@@ -3674,16 +3864,93 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                         </tr>
                         <tr>
                             <td colspan="2">
-                                <div class="vi-ui segment string-replace">
+                                <div class="vi-ui segment find-and-replace">
                                     <div class="vi-ui blue small message">
                                         <div class="header">
 											<?php esc_html_e( 'Find and Replace', 'woocommerce-alidropship' ); ?>
                                         </div>
                                         <ul class="list">
-                                            <li><?php esc_html_e( 'Search for strings in product title and description and replace found strings with respective values.', 'woocommerce-alidropship' ); ?></li>
+                                            <li><?php esc_html_e( 'The first table is to find and replace product specifications by name', 'woocommerce-alidropship' ); ?></li>
+                                            <li><?php esc_html_e( 'The second table is to search for strings in product title and description and replace found strings with respective values.', 'woocommerce-alidropship' ); ?></li>
                                         </ul>
                                     </div>
-                                    <table class="vi-ui celled table">
+                                    <table class="vi-ui celled table specification-replace">
+                                        <thead>
+                                        <tr>
+                                            <th><?php esc_html_e( 'Specification Name', 'woocommerce-alidropship' ); ?></th>
+                                            <th><?php esc_html_e( 'Case Sensitive', 'woocommerce-alidropship' ); ?></th>
+                                            <th><?php esc_html_e( 'Specification New Name', 'woocommerce-alidropship' ); ?></th>
+                                            <th><?php esc_html_e( 'Specification New Value', 'woocommerce-alidropship' ); ?></th>
+                                            <th><?php esc_html_e( 'Remove', 'woocommerce-alidropship' ); ?></th>
+                                        </tr>
+                                        </thead>
+                                        <tbody>
+										<?php
+										$specification_replace       = self::$settings->get_params( 'specification_replace' );
+										$specification_replace_count = 1;
+										if ( ! empty( $specification_replace['from_name'] ) && ! empty( $specification_replace['to_name'] ) && is_array( $specification_replace['from_name'] ) ) {
+											$specification_replace_count = count( $specification_replace['from_name'] );
+										}
+										for ( $i = 0; $i < $specification_replace_count; $i ++ ) {
+											$checked = $case_sensitive = '';
+											if ( ! empty( $specification_replace['sensitive'][ $i ] ) ) {
+												$checked        = 'checked';
+												$case_sensitive = 1;
+											}
+											?>
+                                            <tr class="clone-source">
+                                                <td>
+                                                    <input type="text"
+                                                           value="<?php echo esc_attr( isset( $specification_replace['from_name'][ $i ] ) ? $specification_replace['from_name'][ $i ] : '' ) ?>"
+                                                           name="<?php self::set_params( 'specification_replace[from_name][]' ) ?>">
+                                                </td>
+                                                <td>
+                                                    <div class="<?php self::set_params( 'specification-replace-sensitive-container', true ) ?>">
+                                                        <input type="checkbox"
+                                                               value="1" <?php echo esc_attr( $checked ) ?>
+                                                               class="<?php self::set_params( 'specification-replace-sensitive', true ) ?>">
+                                                        <input type="hidden"
+                                                               class="<?php self::set_params( 'specification-replace-sensitive-value', true ) ?>"
+                                                               value="<?php echo esc_attr( $case_sensitive ) ?>"
+                                                               name="<?php self::set_params( 'specification_replace[sensitive][]' ) ?>">
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <input type="text"
+                                                           placeholder="<?php esc_attr_e( 'Leave blank to delete matches', 'woocommerce-alidropship' ); ?>"
+                                                           value="<?php echo esc_attr( isset( $specification_replace['to_name'][ $i ] ) ? $specification_replace['to_name'][ $i ] : '' ) ?>"
+                                                           name="<?php self::set_params( 'specification_replace[to_name][]' ) ?>">
+                                                </td>
+                                                <td>
+                                                    <input type="text"
+                                                           placeholder="{old_value}"
+                                                           value="<?php echo esc_attr( isset( $specification_replace['new_value'][ $i ] ) ? $specification_replace['new_value'][ $i ] : '' ) ?>"
+                                                           name="<?php self::set_params( 'specification_replace[new_value][]' ) ?>">
+                                                </td>
+                                                <td>
+                                                    <button type="button"
+                                                            class="vi-ui button negative mini delete-specification-replace-rule">
+                                                        <i class="dashicons dashicons-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+											<?php
+										}
+										?>
+                                        </tbody>
+                                        <tfoot>
+                                        <tr>
+                                            <th colspan="5">
+                                                <button type="button"
+                                                        class="vi-ui button labeled icon positive add-specification-replace-rule mini">
+                                                    <i class="icon plus"></i>
+													<?php esc_html_e( 'Add', 'woocommerce-alidropship' ); ?>
+                                                </button>
+                                            </th>
+                                        </tr>
+                                        </tfoot>
+                                    </table>
+                                    <table class="vi-ui celled table string-replace">
                                         <thead>
                                         <tr>
                                             <th><?php esc_html_e( 'Search', 'woocommerce-alidropship' ); ?></th>
@@ -3725,7 +3992,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                                 </td>
                                                 <td>
                                                     <input type="text"
-                                                           placeholder="<?php esc_html_e( 'Leave blank to delete matches', 'woocommerce-alidropship' ); ?>"
+                                                           placeholder="<?php esc_attr_e( 'Leave blank to delete matches', 'woocommerce-alidropship' ); ?>"
                                                            value="<?php echo esc_attr( isset( $string_replace['to_string'][ $i ] ) ? $string_replace['to_string'][ $i ] : '' ) ?>"
                                                            name="<?php self::set_params( 'string_replace[to_string][]' ) ?>">
                                                 </td>
@@ -3777,7 +4044,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                             <tbody>
                             <tr>
                                 <th>
-                                    <label for="<?php self::set_params( 'import_currency_rate', true ) ?>"><?php printf( esc_html__( 'Exchange rate - USD/%s', 'woocommerce-alidropship' ), get_woocommerce_currency() ) ?></label>
+                                    <label for="<?php self::set_params( 'import_currency_rate', true ) ?>"><?php printf( esc_html__( 'Exchange rate - USD/%s', 'woocommerce-alidropship' ), get_option( 'woocommerce_currency' ) ) ?></label>
                                 <td>
                                     <div class="vi-ui left labeled input">
                                         <label class="vi-ui label"><span data-currency="USD"
@@ -3790,7 +4057,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                                value="<?php echo self::$settings->get_params( 'import_currency_rate' ) ?>"
                                                name="<?php self::set_params( 'import_currency_rate' ) ?>"/>
                                     </div>
-                                    <p><?php printf( __( 'This is exchange rate to convert product price from USD to your store currency(%s) when adding products to import list, syncing products and convert shipping cost(if Frontend shipping functionality is enabled).', 'woocommerce-alidropship' ), get_woocommerce_currency() ) ?></p>
+                                    <p><?php printf( __( 'This is exchange rate to convert product price from USD to your store\'s currency(%s) when adding products to import list, syncing products and convert shipping cost(if Frontend shipping functionality is enabled).', 'woocommerce-alidropship' ), get_option( 'woocommerce_currency' ) ) ?></p>
                                 </td>
                             </tr>
                             <tr>
@@ -3836,10 +4103,33 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                                                value="<?php echo self::$settings->get_params( 'import_currency_rate_CNY' ) ?>"
                                                name="<?php self::set_params( 'import_currency_rate_CNY' ) ?>"/>
                                     </div>
-                                    <p><?php printf( __( 'In some cases, prices are only available in CNY so we first have to convert them to USD. If not set, our plugin will skip syncing price. This rate always uses 2 decimals when updated.', 'woocommerce-alidropship' ), get_woocommerce_currency() ) ?></p>
+                                    <p><?php esc_html_e( 'In some cases, prices are only available in CNY so we first have to convert them to USD. If not set, our plugin will skip syncing price. This rate always uses 2 decimals when updated.', 'woocommerce-alidropship' ) ?></p>
                                 </td>
                             </tr>
 							<?php
+							if ( get_option( 'woocommerce_currency' ) !== 'RUB' ) {
+								?>
+                                <tr>
+                                    <th>
+                                        <label for="<?php self::set_params( 'import_currency_rate_RUB', true ) ?>"><?php esc_html_e( 'Exchange rate - RUB/USD', 'woocommerce-alidropship' ) ?></label>
+                                    <td>
+                                        <div class="vi-ui left labeled input">
+                                            <label class="vi-ui label"><span data-currency="RUB"
+                                                                             class="vi-ui button positive mini labeled icon <?php self::set_params( 'import_currency_rate_button', true ) ?>"><i
+                                                            class="icon download cloud"></i><?php esc_html_e( 'Update rate', 'woocommerce-alidropship' ) ?></span></label>
+                                            <input type="number" <?php checked( self::$settings->get_params( 'import_currency_rate_RUB' ), 1 ) ?>
+                                                   step="0.001"
+                                                   min="0.001"
+                                                   id="<?php self::set_params( 'import_currency_rate_RUB', true ) ?>"
+                                                   class="<?php self::set_params( 'import_currency_rate_RUB', true ) ?>"
+                                                   value="<?php echo self::$settings->get_params( 'import_currency_rate_RUB' ) ?>"
+                                                   name="<?php self::set_params( 'import_currency_rate_RUB' ) ?>"/>
+                                        </div>
+                                        <p><?php esc_html_e( 'In some cases, prices are only available in RUB so we first have to convert them to USD. If not set, you will not be able to import products in RUB(if the store currency is not RUB) and our plugin will skip syncing price. This rate always uses 3 decimals when updated.', 'woocommerce-alidropship' ) ?></p>
+                                    </td>
+                                </tr>
+								<?php
+							}
 							$exchange_api           = self::$settings->get_params( 'exchange_rate_api' );
 							$supported_exchange_api = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_supported_exchange_api();
 							?>
@@ -3963,37 +4253,27 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 						<?php
 					}
 					?>
-                    <div class="vi-ui segment">
+                    <div class="vi-ui segment <?php self::set_params( 'price_rule_wrapper', true ) ?>">
                         <div class="vi-ui positive small message">
 							<?php esc_html_e( 'For each price, first matched rule(from top to bottom) will be applied. If no rules match, the default will be used.', 'woocommerce-alidropship' ) ?>
                         </div>
                         <table class="vi-ui celled table price-rule">
-                            <thead>
-                            <tr>
-                                <th><?php esc_html_e( 'Price range', 'woocommerce-alidropship' ) ?></th>
-                                <th><?php esc_html_e( 'Actions', 'woocommerce-alidropship' ) ?></th>
-                                <th><?php esc_html_e( 'Sale price', 'woocommerce-alidropship' ) ?>
-                                    <div class="<?php self::set_params( 'description', true ) ?>">
-										<?php esc_html_e( '(Set -1 to not use sale price)', 'woocommerce-alidropship' ) ?>
-                                    </div>
-                                </th>
-                                <th style="min-width: 135px"><?php esc_html_e( 'Regular price', 'woocommerce-alidropship' ) ?></th>
-                                <th></th>
-                            </tr>
-                            </thead>
-                            <tbody class="<?php self::set_params( 'price_rule_container', true ) ?> ui-sortable">
 							<?php
+							self::price_rule_table_head();
 							$decimals      = wc_get_price_decimals();
 							$decimals_unit = 1;
 							if ( $decimals > 0 ) {
 								$decimals_unit = pow( 10, ( - 1 * $decimals ) );
 							}
-							$price_from       = self::$settings->get_params( 'price_from' );
-							$price_default    = self::$settings->get_params( 'price_default' );
-							$price_to         = self::$settings->get_params( 'price_to' );
-							$plus_value       = self::$settings->get_params( 'plus_value' );
-							$plus_sale_value  = self::$settings->get_params( 'plus_sale_value' );
-							$plus_value_type  = self::$settings->get_params( 'plus_value_type' );
+							$price_from      = self::$settings->get_params( 'price_from' );
+							$price_default   = self::$settings->get_params( 'price_default' );
+							$price_to        = self::$settings->get_params( 'price_to' );
+							$plus_value      = self::$settings->get_params( 'plus_value' );
+							$plus_sale_value = self::$settings->get_params( 'plus_sale_value' );
+							$plus_value_type = self::$settings->get_params( 'plus_value_type' );
+							?>
+                            <tbody class="<?php self::set_params( 'price_rule_container', true ) ?> ui-sortable">
+							<?php
 							$price_from_count = count( $price_from );
 							if ( $price_from_count > 0 ) {
 								/*adjust price rules since version 1.0.1.1*/
@@ -4408,11 +4688,30 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
                         </button>
 						<?php
 					}
+					VI_WOOCOMMERCE_ALIDROPSHIP_DATA::chrome_extension_buttons();
 					?>
                 </p>
             </form>
 			<?php do_action( 'villatheme_support_woocommerce-alidropship' ) ?>
         </div>
+		<?php
+	}
+
+	protected static function price_rule_table_head() {
+		?>
+        <thead>
+        <tr>
+            <th><?php esc_html_e( 'Price range', 'woocommerce-alidropship' ) ?></th>
+            <th><?php esc_html_e( 'Actions', 'woocommerce-alidropship' ) ?></th>
+            <th><?php esc_html_e( 'Sale price', 'woocommerce-alidropship' ) ?>
+                <div class="<?php self::set_params( 'description', true ) ?>">
+					<?php esc_html_e( '(Set -1 to not use sale price)', 'woocommerce-alidropship' ) ?>
+                </div>
+            </th>
+            <th style="min-width: 135px"><?php esc_html_e( 'Regular price', 'woocommerce-alidropship' ) ?></th>
+            <th></th>
+        </tr>
+        </thead>
 		<?php
 	}
 
@@ -4554,5 +4853,296 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings {
 		if ( ! apply_filters( 'vi_wad_verify_ajax_nonce', false, $page ) ) {
 			check_ajax_referer( 'woocommerce_alidropship_admin_ajax', '_vi_wad_ajax_nonce' );
 		}
+	}
+
+	private static function custom_rule_html( $custom_rule_id, $custom_rule ) {
+		?>
+        <div class="sixteen wide field <?php self::set_params( 'custom_price_rule_wrap', true ) ?>"
+             data-custom_rule_id="<?php echo esc_attr( $custom_rule_id ); ?>">
+            <div class="vi-ui fluid styled accordion">
+                <div class="title"><i
+                            class="dropdown icon"></i><?php esc_html_e( 'Apply to', 'woocommerce-alidropship' ); ?>
+                    <span class="<?php self::set_params( 'custom_price_rule_remove', true ) ?>"><i
+                                class="icon trash"></i></span>
+                </div>
+                <div class="content">
+                    <table class="form-table">
+                        <tbody>
+                        <tr>
+                            <th><?php esc_html_e( 'Include products', 'woocommerce-alidropship' ); ?></th>
+                            <td>
+                                <select name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][products]", false, true ) ?>"
+                                        multiple="multiple"
+                                        class="search-product">
+									<?php
+									foreach ( $custom_rule['products'] as $product_id ) {
+										$product = wc_get_product( $product_id );
+										if ( $product ) {
+											?>
+                                            <option value="<?php echo esc_attr( $product_id ) ?>"
+                                                    selected><?php echo esc_html( "(#{$product_id}) " . $product->get_title() ) ?></option>
+											<?php
+										}
+									}
+									?>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Exclude products', 'woocommerce-alidropship' ); ?></th>
+                            <td>
+                                <select name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][excl_products]", false, true ) ?>"
+                                        multiple="multiple"
+                                        class="search-product">
+									<?php
+									foreach ( $custom_rule['excl_products'] as $product_id ) {
+										$product = wc_get_product( $product_id );
+										if ( $product ) {
+											?>
+                                            <option value="<?php echo esc_attr( $product_id ) ?>"
+                                                    selected><?php echo esc_html( "(#{$product_id}) " . $product->get_title() ) ?></option>
+											<?php
+										}
+									}
+									?>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Include categories', 'woocommerce-alidropship' ); ?></th>
+                            <td>
+                                <select name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][categories]", false, true ) ?>"
+                                        class="search-category"
+                                        multiple="multiple">
+									<?php
+									foreach ( $custom_rule['categories'] as $category_id ) {
+										$category = get_term( $category_id );
+										if ( $category ) {
+											?>
+                                            <option value="<?php echo esc_attr( $category_id ) ?>"
+                                                    selected><?php echo esc_html( VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List::build_category_name( $category->name, $category ) ); ?></option>
+											<?php
+										}
+									}
+									?>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Exclude categories', 'woocommerce-alidropship' ); ?></th>
+                            <td>
+                                <select name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][excl_categories]", false, true ) ?>"
+                                        class="search-category"
+                                        multiple="multiple">
+									<?php
+									foreach ( $custom_rule['excl_categories'] as $category_id ) {
+										$category = get_term( $category_id );
+										if ( $category ) {
+											?>
+                                            <option value="<?php echo esc_attr( $category_id ) ?>"
+                                                    selected><?php echo esc_html( VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List::build_category_name( $category->name, $category ) ); ?></option>
+											<?php
+										}
+									}
+									?>
+                                </select>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="title"><i
+                            class="dropdown icon"></i><?php esc_html_e( 'Pricing rules', 'woocommerce-alidropship' ); ?>
+                </div>
+                <div class="content <?php self::set_params( 'price_rule_wrapper', true ) ?>">
+                    <table class="vi-ui celled table price-rule">
+						<?php
+						self::price_rule_table_head();
+						$price_from      = $custom_rule['price_from'];
+						$price_default   = $custom_rule['price_default'];
+						$price_to        = $custom_rule['price_to'];
+						$plus_value      = $custom_rule['plus_value'];
+						$plus_sale_value = $custom_rule['plus_sale_value'];
+						$plus_value_type = $custom_rule['plus_value_type'];
+						?>
+                        <tbody class="<?php self::set_params( 'price_rule_container', true ) ?> ui-sortable">
+						<?php
+						$price_from_count = count( $price_from );
+						if ( $price_from_count > 0 ) {
+							/*adjust price rules since version 1.0.1.1*/
+							if ( ! is_array( $price_to ) || count( $price_to ) !== $price_from_count ) {
+								if ( $price_from_count > 1 ) {
+									$price_to   = array_values( array_slice( $price_from, 1 ) );
+									$price_to[] = '';
+								} else {
+									$price_to = array( '' );
+								}
+							}
+							for ( $i = 0; $i < count( $price_from ); $i ++ ) {
+								switch ( $plus_value_type[ $i ] ) {
+									case 'fixed':
+										$value_label_left  = '+';
+										$value_label_right = '$';
+										break;
+									case 'percent':
+										$value_label_left  = '+';
+										$value_label_right = '%';
+										break;
+									case 'multiply':
+										$value_label_left  = 'x';
+										$value_label_right = '';
+										break;
+									default:
+										$value_label_left  = '=';
+										$value_label_right = '$';
+								}
+								?>
+                                <tr class="<?php self::set_params( 'price_rule_row', true ) ?>">
+                                    <td>
+                                        <div class="equal width fields">
+                                            <div class="field">
+                                                <div class="vi-ui left labeled input fluid">
+                                                    <label for="amount"
+                                                           class="vi-ui label">$</label>
+                                                    <input
+                                                            step="any"
+                                                            type="number"
+                                                            min="0"
+                                                            value="<?php echo esc_attr( $price_from[ $i ] ); ?>"
+                                                            name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][price_from]", false, true ); ?>"
+                                                            class="<?php self::set_params( 'price_from', true ); ?>">
+                                                </div>
+                                            </div>
+                                            <span class="<?php self::set_params( 'price_from_to_separator', true ); ?>">-</span>
+                                            <div class="field">
+                                                <div class="vi-ui left labeled input fluid">
+                                                    <label for="amount"
+                                                           class="vi-ui label">$</label>
+                                                    <input
+                                                            step="any"
+                                                            type="number"
+                                                            min="0"
+                                                            value="<?php echo esc_attr( $price_to[ $i ] ); ?>"
+                                                            name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][price_to]", false, true ); ?>"
+                                                            class="<?php self::set_params( 'price_to', true ); ?>">
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <select name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][plus_value_type]", false, true ); ?>"
+                                                class="vi-ui fluid dropdown <?php self::set_params( 'plus_value_type', true ); ?>">
+                                            <option value="fixed" <?php selected( $plus_value_type[ $i ], 'fixed' ) ?>><?php esc_html_e( 'Increase by Fixed amount($)', 'woocommerce-alidropship' ) ?></option>
+                                            <option value="percent" <?php selected( $plus_value_type[ $i ], 'percent' ) ?>><?php esc_html_e( 'Increase by Percentage(%)', 'woocommerce-alidropship' ) ?></option>
+                                            <option value="multiply" <?php selected( $plus_value_type[ $i ], 'multiply' ) ?>><?php esc_html_e( 'Multiply with', 'woocommerce-alidropship' ) ?></option>
+                                            <option value="set_to" <?php selected( $plus_value_type[ $i ], 'set_to' ) ?>><?php esc_html_e( 'Set to', 'woocommerce-alidropship' ) ?></option>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <div class="vi-ui right labeled input fluid">
+                                            <label for="amount"
+                                                   class="vi-ui label <?php self::set_params( 'value-label-left', true ); ?>"><?php echo esc_html( $value_label_left ) ?></label>
+                                            <input type="number" min="-1"
+                                                   step="any"
+                                                   value="<?php echo esc_attr( $plus_sale_value[ $i ] ); ?>"
+                                                   name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][plus_sale_value]", false, true ); ?>"
+                                                   class="<?php self::set_params( 'plus_sale_value', true ); ?>">
+                                            <div class="vi-ui basic label <?php self::set_params( 'value-label-right', true ); ?>"><?php echo esc_html( $value_label_right ) ?></div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="vi-ui right labeled input fluid">
+                                            <label for="amount"
+                                                   class="vi-ui label <?php self::set_params( 'value-label-left', true ); ?>"><?php echo esc_html( $value_label_left ) ?></label>
+                                            <input type="number" min="0"
+                                                   step="any"
+                                                   value="<?php echo esc_attr( $plus_value[ $i ] ); ?>"
+                                                   name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][plus_value]", false, true ); ?>"
+                                                   class="<?php self::set_params( 'plus_value', true ); ?>">
+                                            <div class="vi-ui basic label <?php self::set_params( 'value-label-right', true ); ?>"><?php echo esc_html( $value_label_right ) ?></div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="">
+                                                                                    <span class="vi-ui button icon negative mini <?php self::set_params( 'price_rule_remove', true ) ?>"
+                                                                                          title="<?php esc_attr_e( 'Remove', 'woocommerce-alidropship' ) ?>"><i
+                                                                                                class="icon trash"></i></span>
+                                        </div>
+                                    </td>
+                                </tr>
+								<?php
+							}
+						}
+						?>
+                        </tbody>
+                        <tfoot>
+						<?php
+						$plus_value_type_d = isset( $price_default['plus_value_type'] ) ? $price_default['plus_value_type'] : 'multiply';
+						$plus_sale_value_d = isset( $price_default['plus_sale_value'] ) ? $price_default['plus_sale_value'] : 1;
+						$plus_value_d      = isset( $price_default['plus_value'] ) ? $price_default['plus_value'] : 2;
+						switch ( $plus_value_type_d ) {
+							case 'fixed':
+								$value_label_left  = '+';
+								$value_label_right = '$';
+								break;
+							case 'percent':
+								$value_label_left  = '+';
+								$value_label_right = '%';
+								break;
+							case 'multiply':
+								$value_label_left  = 'x';
+								$value_label_right = '';
+								break;
+							default:
+								$value_label_left  = '=';
+								$value_label_right = '$';
+						}
+						?>
+                        <tr class="<?php echo esc_attr( self::set( array( 'price-rule-row-default' ) ) ) ?>">
+                            <th><?php esc_html_e( 'Default', 'woocommerce-alidropship' ) ?></th>
+                            <th>
+                                <select name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][price_default][plus_value_type]", false ); ?>"
+                                        class="vi-ui fluid dropdown <?php self::set_params( 'plus_value_type', true ); ?>">
+                                    <option value="fixed" <?php selected( $plus_value_type_d, 'fixed' ) ?>><?php esc_html_e( 'Increase by Fixed amount($)', 'woocommerce-alidropship' ) ?></option>
+                                    <option value="percent" <?php selected( $plus_value_type_d, 'percent' ) ?>><?php esc_html_e( 'Increase by Percentage(%)', 'woocommerce-alidropship' ) ?></option>
+                                    <option value="multiply" <?php selected( $plus_value_type_d, 'multiply' ) ?>><?php esc_html_e( 'Multiply with', 'woocommerce-alidropship' ) ?></option>
+                                    <option value="set_to" <?php selected( $plus_value_type_d, 'set_to' ) ?>><?php esc_html_e( 'Set to', 'woocommerce-alidropship' ) ?></option>
+                                </select>
+                            </th>
+                            <th>
+                                <div class="vi-ui right labeled input fluid">
+                                    <label for="amount"
+                                           class="vi-ui label <?php self::set_params( 'value-label-left', true ); ?>"><?php echo esc_html( $value_label_left ) ?></label>
+                                    <input type="number" min="-1" step="any"
+                                           value="<?php echo esc_attr( $plus_sale_value_d ); ?>"
+                                           name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][price_default][plus_sale_value]", false ); ?>"
+                                           class="<?php self::set_params( 'plus_sale_value', true ); ?>">
+                                    <div class="vi-ui basic label <?php self::set_params( 'value-label-right', true ); ?>"><?php echo esc_html( $value_label_right ) ?></div>
+                                </div>
+                            </th>
+                            <th>
+                                <div class="vi-ui right labeled input fluid">
+                                    <label for="amount"
+                                           class="vi-ui label <?php self::set_params( 'value-label-left', true ); ?>"><?php echo esc_html( $value_label_left ) ?></label>
+                                    <input type="number" min="0" step="any"
+                                           value="<?php echo esc_attr( $plus_value_d ); ?>"
+                                           name="<?php self::set_params( "update_product_custom_rules[$custom_rule_id][price_default][plus_value]", false ); ?>"
+                                           class="<?php self::set_params( 'plus_value', true ); ?>">
+                                    <div class="vi-ui basic label <?php self::set_params( 'value-label-right', true ); ?>"><?php echo esc_html( $value_label_right ) ?></div>
+                                </div>
+                            </th>
+                            <th>
+                            </th>
+                        </tr>
+                        </tfoot>
+                    </table>
+                    <span class="<?php self::set_params( 'price_rule_add', true ) ?> vi-ui button labeled icon positive mini"
+                          title="<?php esc_attr_e( 'Add a new price range', 'woocommerce-alidropship' ) ?>"><i
+                                class="icon add"></i><?php esc_html_e( 'Add price range', 'woocommerce-alidropship' ); ?></span>
+                </div>
+            </div>
+        </div>
+		<?php
 	}
 }

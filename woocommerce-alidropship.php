@@ -3,19 +3,19 @@
  * Plugin Name: ALD - Aliexpress Dropshipping and Fulfillment for WooCommerce
  * Plugin URI: https://villatheme.com/extensions/aliexpress-dropshipping-and-fulfillment-for-woocommerce/
  * Description: Transfer data from AliExpress products to WooCommerce effortlessly and fulfill WooCommerce order to AliExpress automatically.
- * Version: 1.0.22
+ * Version: 1.1.4
  * Author: VillaTheme(villatheme.com)
  * Author URI: http://villatheme.com
  * Text Domain: woocommerce-alidropship
  * Copyright 2020-2022 VillaTheme.com. All rights reserved.
- * Tested up to: 6.0
- * WC tested up to: 6.6
+ * Tested up to: 6.1
+ * WC tested up to: 7.1
  * Requires PHP: 7.0
  **/
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
-define( 'VI_WOOCOMMERCE_ALIDROPSHIP_VERSION', '1.0.22' );
+define( 'VI_WOOCOMMERCE_ALIDROPSHIP_VERSION', '1.1.4' );
 include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
 define( 'VI_WOOCOMMERCE_ALIDROPSHIP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VI_WOOCOMMERCE_ALIDROPSHIP_INCLUDES', VI_WOOCOMMERCE_ALIDROPSHIP_DIR . "includes" . DIRECTORY_SEPARATOR );
@@ -37,7 +37,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP {
 		register_activation_hook( __FILE__, array( $this, 'activate' ) );
 		register_deactivation_hook( __FILE__, array( $this, 'deactivate' ) );
 		add_action( 'admin_notices', array( $this, 'global_note' ) );
-		add_action( 'admin_init', array( $this, 'update_db_new_version' ) );
+		add_action( 'admin_init', array( $this, 'update_db_new_version' ), 0 );
 	}
 
 	public function update_db_new_version() {
@@ -46,6 +46,17 @@ class VI_WOOCOMMERCE_ALIDROPSHIP {
 			VI_WOOCOMMERCE_ALIDROPSHIP_Ali_Orders_Info_Table::create_table();
 			VI_WOOCOMMERCE_ALIDROPSHIP_Ali_Shipping_Info_Table::create_table();
 			VI_WOOCOMMERCE_ALIDROPSHIP_Ali_Shipping_Info_Table::add_column( 'ali_id' );
+			update_option( $option, time() );
+		}
+		$option = 'vi_wad_update_access_token_new_app_1.1.0';
+		if ( ! get_option( $option ) ) {
+			$args = get_option( 'wooaliexpressdropship_params' );
+			if ( isset( $args['access_tokens'] ) && is_array( $args['access_tokens'] ) && $args['access_tokens'] ) {
+				foreach ( $args['access_tokens'] as &$access_token ) {
+					$access_token['expire_time'] = 1000 * ( time() - DAY_IN_SECONDS );
+				}
+				update_option( 'wooaliexpressdropship_params', $args );
+			}
 			update_option( $option, time() );
 		}
 	}
@@ -64,7 +75,6 @@ class VI_WOOCOMMERCE_ALIDROPSHIP {
 	/**
 	 * When active plugin Function will be call
 	 */
-
 	public function activate() {
 		global $wp_version;
 		if ( version_compare( $wp_version, "2.9", "<" ) ) {
@@ -78,6 +88,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP {
 		}
 		$check_active = get_option( 'wooaliexpressdropship_params' );
 		if ( ! $check_active ) {
+			update_option( 'vi_wad_update_access_token_new_app_1.1.0', time() );
 			if ( is_plugin_active( 'woocommerce/woocommerce.php' ) ) {
 				$settings             = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_instance();
 				$params               = $settings->get_params();

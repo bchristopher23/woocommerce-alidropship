@@ -32,6 +32,10 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		add_action( 'admin_notices', array( $this, 'admin_notices' ) );
 		add_filter( 'set-screen-option', array( $this, 'save_screen_options' ), 10, 3 );
 		add_action( 'wp_ajax_vi_wad_import', array( $this, 'import' ) );
+		add_action( 'wp_ajax_vi_wad_switch_product_attributes_values', array(
+			$this,
+			'switch_product_attributes_values'
+		) );
 		add_action( 'wp_ajax_vi_wad_select_shipping', array(
 			$this,
 			'select_shipping'
@@ -46,6 +50,111 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		add_action( 'wp_ajax_vi_wad_save_attributes', array( $this, 'save_attributes' ) );
 		add_action( 'wp_ajax_vi_wad_remove_attribute', array( $this, 'ajax_remove_attribute' ) );
 		add_action( 'admin_head', array( $this, 'menu_product_count' ), 999 );
+	}
+
+	public function switch_product_attributes_values() {
+		self::check_ajax_referer();
+		$key        = isset( $_POST['product_index'] ) ? absint( sanitize_text_field( $_POST['product_index'] ) ) : '';
+		$product_id = isset( $_POST['product_id'] ) ? sanitize_text_field( $_POST['product_id'] ) : '';
+		$from_tab   = isset( $_POST['from_tab'] ) ? sanitize_text_field( $_POST['from_tab'] ) : '';
+		if ( $key > - 1 && $product_id ) {
+			$currency                    = 'USD';
+			$woocommerce_currency        = get_option( 'woocommerce_currency' );
+			$woocommerce_currency_symbol = get_woocommerce_currency_symbol();
+			$manage_stock                = self::$settings->get_params( 'manage_stock' );
+			$use_different_currency      = false;
+			$decimals                    = wc_get_price_decimals();
+			$variations                  = get_post_meta( $product_id, '_vi_wad_variations', true );
+			$attributes                  = get_post_meta( $product_id, '_vi_wad_attributes', true );
+			if ( is_array( $variations ) && count( $variations ) && is_array( $attributes ) && count( $attributes ) ) {
+				if ( empty( $variations[0]['attributes_sub_edited'] ) && ! empty( $variations[0]['attributes_edited'] ) ) {
+					wp_send_json(
+						array(
+							'status'  => 'error',
+							'message' => esc_html__( 'Not supported, please try reimporting this product from AliExpress.', 'woocommerce-alidropship' )
+						)
+					);
+				}
+				foreach ( $attributes as $attribute_k => $attribute ) {
+					if ( ! empty( $attribute['values_sub'] ) ) {
+						$temp                                     = $attribute['values'];
+						$attributes[ $attribute_k ]['values']     = $attribute['values_sub'];
+						$attributes[ $attribute_k ]['values_sub'] = $temp;
+					}
+				}
+				update_post_meta( $product_id, '_vi_wad_attributes', $attributes );
+				foreach ( $variations as $variation_k => $variation ) {
+					if ( isset( $variation['attributes_sub'] ) && is_array( $variation['attributes_sub'] ) && count( $variation['attributes_sub'] ) === count( $variation['attributes'] ) ) {
+						$temp                                         = $variation['attributes'];
+						$variations[ $variation_k ]['attributes']     = $variation['attributes_sub'];
+						$variations[ $variation_k ]['attributes_sub'] = $temp;
+					}
+					if ( ! empty( $variation['sku'] ) ) {
+						$temp                                  = $variation['sku'];
+						$variations[ $variation_k ]['sku']     = $variation['sku_sub'];
+						$variations[ $variation_k ]['sku_sub'] = $temp;
+					}
+				}
+				update_post_meta( $product_id, '_vi_wad_variations', $variations );
+			} else {
+				wp_send_json(
+					array(
+						'status'  => 'error',
+						'message' => esc_html__( 'Can not find replacement for product attributes values. Please remove this product and import it again with the latest version of this plugin and Chrome Extension', 'woocommerce-alidropship' )
+					)
+				);
+			}
+
+			$list_attributes = get_post_meta( $product_id, '_vi_wad_list_attributes', true );
+			if ( is_array( $list_attributes ) && count( $list_attributes ) ) {
+				foreach ( $list_attributes as $list_attribute_k => $list_attribute ) {
+					if ( ! empty( $list_attribute['name_sub'] ) ) {
+						$temp                                             = $list_attribute['name'];
+						$list_attributes[ $list_attribute_k ]['name']     = $list_attribute['name_sub'];
+						$list_attributes[ $list_attribute_k ]['name_sub'] = $temp;
+					}
+				}
+				update_post_meta( $product_id, '_vi_wad_list_attributes', $list_attributes );
+			}
+			$parent = array();
+			if ( is_array( $attributes ) && count( $attributes ) ) {
+				foreach ( $attributes as $attribute_k => $attribute_v ) {
+					$parent[ $attribute_k ] = $attribute_v['slug'];
+				}
+			}
+			if ( $decimals < 1 ) {
+				$decimals = 1;
+			} else {
+				$decimals = pow( 10, ( - 1 * $decimals ) );
+			}
+			if ( strtolower( $woocommerce_currency ) != strtolower( $currency ) ) {
+				$use_different_currency = true;
+			}
+			$variations_tab = '';
+			if ( 'variations' === $from_tab ) {
+				ob_start();
+				self::variation_html( $key, $parent, $attributes, $manage_stock, $variations, $use_different_currency, $currency, $product_id, $woocommerce_currency_symbol, $decimals, false );
+				$variations_tab = ob_get_clean();
+			}
+			ob_start();
+			self::attributes_tab_html( $product_id, $attributes );
+			$attributes_tab = ob_get_clean();
+			wp_send_json(
+				array(
+					'status'         => 'success',
+					'message'        => '',
+					'variations_tab' => $variations_tab,
+					'attributes_tab' => $attributes_tab,
+				)
+			);
+		} else {
+			wp_send_json(
+				array(
+					'status'  => 'error',
+					'message' => esc_html__( 'Can not find replacement for product attributes values. Please remove this product and import it again with the latest version of this plugin and Chrome Extension', 'woocommerce-alidropship' )
+				)
+			);
+		}
 	}
 
 	public function reimport_product() {
@@ -106,6 +215,9 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		}
 	}
 
+	/**
+	 * Update attributes after removing an attribute
+	 */
 	public function ajax_remove_attribute() {
 		self::check_ajax_referer();
 		if ( ! current_user_can( apply_filters( 'vi_wad_admin_sub_menu_capability', 'manage_woocommerce', 'woocommerce-alidropship-import-list' ) ) ) {
@@ -138,8 +250,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 				if ( ! count( $attributes ) ) {
 					$key                         = isset( $_POST['product_index'] ) ? absint( sanitize_text_field( $_POST['product_index'] ) ) : '';
 					$currency                    = 'USD';
-					$woocommerce_currency        = get_woocommerce_currency();
-					$woocommerce_currency_symbol = get_woocommerce_currency_symbol();
+					$woocommerce_currency        = get_option( 'woocommerce_currency' );
+					$woocommerce_currency_symbol = get_woocommerce_currency_symbol( $woocommerce_currency );
 					$manage_stock                = self::$settings->get_params( 'manage_stock' );
 					$use_different_currency      = false;
 					$decimals                    = wc_get_price_decimals();
@@ -163,6 +275,16 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		wp_send_json( $response );
 	}
 
+	/**
+	 * @param $product_id
+	 * @param $remove_attribute
+	 * @param $attribute_value
+	 * @param $split_variations
+	 * @param $attributes
+	 * @param $variations
+	 *
+	 * @return bool
+	 */
 	public static function remove_product_attribute( $product_id, $remove_attribute, $attribute_value, $split_variations, &$attributes, &$variations ) {
 		$remove = false;
 		if ( count( $remove_attribute ) && count( $attributes ) ) {
@@ -327,6 +449,9 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		}
 	}
 
+	/**
+	 * Save attributes after changing slug and/or values
+	 */
 	public function save_attributes() {
 		self::check_ajax_referer();
 		if ( ! current_user_can( apply_filters( 'vi_wad_admin_sub_menu_capability', 'manage_woocommerce', 'woocommerce-alidropship-import-list' ) ) ) {
@@ -439,8 +564,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		if ( $key > - 1 && $product_id ) {
 			remove_all_filters( 'woocommerce_currency_symbol' );
 			$currency                    = 'USD';
-			$woocommerce_currency        = get_woocommerce_currency();
-			$woocommerce_currency_symbol = get_woocommerce_currency_symbol();
+			$woocommerce_currency        = get_option( 'woocommerce_currency' );
+			$woocommerce_currency_symbol = get_woocommerce_currency_symbol( $woocommerce_currency );
 			$manage_stock                = self::$settings->get_params( 'manage_stock' );
 			$use_different_currency      = false;
 //			$variations                  = get_post_meta( $product_id, '_vi_wad_variations', true );
@@ -905,20 +1030,27 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		);
 		$override_hide           = isset( $_POST['override_hide'] ) ? sanitize_text_field( $_POST['override_hide'] ) : '';
 		$override_keep_product   = isset( $_POST['override_keep_product'] ) ? sanitize_text_field( $_POST['override_keep_product'] ) : '';
+		$override_link_only      = isset( $_POST['override_link_only'] ) ? sanitize_text_field( $_POST['override_link_only'] ) : '';
 		$override_find_in_orders = isset( $_POST['override_find_in_orders'] ) ? sanitize_text_field( $_POST['override_find_in_orders'] ) : '';
 		if ( $override_hide ) {
+			/*If "Save my choices and do not show these options again" is checked, save user's choices*/
 			$params = self::$settings->get_params();
 			foreach ( $override_options as $override_option_k => $override_option_v ) {
 				$params[ $override_option_k ] = $override_option_v;
 			}
 			$params['override_hide']           = $override_hide;
 			$params['override_keep_product']   = $override_keep_product;
+			$params['override_link_only']      = $override_link_only;
 			$params['override_find_in_orders'] = $override_find_in_orders;
 			update_option( 'wooaliexpressdropship_params', $params );
 		} elseif ( self::$settings->get_params( 'override_hide' ) ) {
+			/*If Hide options is checked, get these options from settings*/
 			foreach ( $override_options as $override_option_k => $override_option_v ) {
 				$override_options[ $override_option_k ] = self::$settings->get_params( $override_option_k );
 			}
+			$override_keep_product   = self::$settings->get_params( 'override_keep_product' );
+			$override_link_only      = self::$settings->get_params( 'override_link_only' );
+			$override_find_in_orders = self::$settings->get_params( 'override_find_in_orders' );
 		}
 		if ( ! $override_product_id && ! $override_woo_id ) {
 			wp_send_json( array(
@@ -1067,7 +1199,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		} else {
 			wp_send_json( array(
 				'status'  => 'error',
-				'message' => esc_html__( 'Overridden product does not exists', 'woocommerce-alidropship' ),
+				'message' => esc_html__( 'Overridden product does not exist', 'woocommerce-alidropship' ),
 			) );
 		}
 		$variations_attributes = array();
@@ -1101,7 +1233,6 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 				}
 			}
 		} else {
-//				$variations    = get_post_meta( $product_draft_id, '_vi_wad_variations', true );
 			$variations    = self::get_product_variations( $product_draft_id, true );
 			$shipping_cost = 0;
 			if ( self::$settings->get_params( 'show_shipping_option' ) ) {
@@ -1148,7 +1279,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 						wp_send_json( array(
 							'status'      => 'error',
 							'product_id'  => $woo_product_id,
-							'message'     => esc_html__( 'Please select a original AliExpress variation for all existing variations', 'woocommerce-alidropship' ),
+							'message'     => esc_html__( 'Please select an original AliExpress variation for all existing variations', 'woocommerce-alidropship' ),
 							'button_html' => '',
 						) );
 					}
@@ -1174,7 +1305,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 						wp_send_json( array(
 							'status'      => 'error',
 							'product_id'  => $woo_product_id,
-							'message'     => esc_html__( 'Please select a original AliExpress variation for all existing variations', 'woocommerce-alidropship' ),
+							'message'     => esc_html__( 'Please select an original AliExpress variation for all existing variations', 'woocommerce-alidropship' ),
 							'button_html' => '',
 						) );
 					}
@@ -1237,6 +1368,16 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 					$is_simple = false;
 					if ( ! is_array( $attributes ) || ! count( $attributes ) || ( count( $variations ) === 1 && self::$settings->get_params( 'simple_if_one_variation' ) ) ) {
 						$is_simple = true;
+					}
+					if ( $override_link_only ) {
+						if ( $woo_product->is_type( 'variable' ) ) {
+							if ( ! $replace_items ) {
+								wp_send_json( array(
+									'status'  => 'error',
+									'message' => esc_html__( 'Please select replacement for at least 1 variation', 'woocommerce-alidropship' ),
+								) );
+							}
+						}
 					}
 					$woo_product->set_status( $product_data['status'] );
 					if ( $product_data['sku'] ) {
@@ -1403,6 +1544,14 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 									}
 								} else {
 									wp_delete_post( $variation_id, true );
+								}
+							}
+						}
+						if ( $override_link_only ) {
+							/*If link only, unset all variations that do not exist in the target Woo product*/
+							foreach ( $product_data['variations'] as $product_data_variation_k => $product_data_variation ) {
+								if ( empty( $product_data_variation['variation_id'] ) ) {
+									unset( $product_data['variations'][ $product_data_variation_k ] );
 								}
 							}
 						}
@@ -1602,6 +1751,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 	 * @throws Exception
 	 */
 	public function import_product( $product_data ) {
+		$product_data = apply_filters( 'vi_wad_import_list_product_data', $product_data, $product_data );
 		do_action( 'vi_wad_import_list_before_import', $product_data );
 		wp_suspend_cache_invalidation( true );
 		vi_wad_set_time_limit();
@@ -1609,6 +1759,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		$parent_id                  = $product_data['parent_id'];
 		$image                      = $product_data['image'];
 		$categories                 = isset( $product_data['categories'] ) ? $product_data['categories'] : array();
+		$show_product_video_tab     = isset( $product_data['show_product_video_tab'] ) ? $product_data['show_product_video_tab'] : '';
 		$shipping_class             = isset( $product_data['shipping_class'] ) ? $product_data['shipping_class'] : '';
 		$title                      = $product_data['title'];
 		$sku                        = $product_data['sku'] ? wc_product_generate_unique_sku( 0, $product_data['sku'] ) : '';
@@ -1651,6 +1802,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 					$video = self::get_video_url( $parent_id );
 					if ( $video ) {
 						update_post_meta( $product_id, '_vi_wad_product_video', $video );
+						update_post_meta( $product_id, '_vi_wad_show_product_video_tab', $show_product_video_tab );
 					}
 				}
 				update_post_meta( $product_id, '_vi_wad_aliexpress_product_id', $ali_product_id );
@@ -2180,8 +2332,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		$company      = isset( $_POST['company'] ) ? sanitize_text_field( $_POST['company'] ) : '';
 		if ( $key > - 1 && $product_id && $product_type ) {
 			$currency                    = 'USD';
-			$woocommerce_currency        = get_woocommerce_currency();
-			$woocommerce_currency_symbol = get_woocommerce_currency_symbol();
+			$woocommerce_currency        = get_option( 'woocommerce_currency' );
+			$woocommerce_currency_symbol = get_woocommerce_currency_symbol( $woocommerce_currency );
 			$manage_stock                = self::$settings->get_params( 'manage_stock' );
 			$use_different_currency      = false;
 //			$variations                  = get_post_meta( $product_id, '_vi_wad_variations', true );
@@ -2339,8 +2491,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 				$product_data['variations']       = $variations;
 				$product_data['parent_id']        = $product_draft_id;
 				$product_data['ali_product_id']   = get_post_meta( $product_draft_id, '_vi_wad_sku', true );
-
-				$woo_product_id = $this->import_product( $product_data );
+				$woo_product_id                   = $this->import_product( $product_data );
 
 				if ( ! is_wp_error( $woo_product_id ) ) {
 					$response['status']         = 'success';
@@ -2459,7 +2610,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
                             <select id="<?php echo esc_attr( self::set( 'set-price-action' ) ) ?>"
                                     class="<?php echo esc_attr( self::set( 'set-price-action' ) ) ?>">
                                 <option value="set_new_value"><?php esc_html_e( 'Set to this value', 'woocommerce-alidropship' ) ?></option>
-                                <option value="increase_by_fixed_value"><?php esc_html_e( 'Increase by fixed value(' . get_woocommerce_currency_symbol() . ')', 'woocommerce-alidropship' ) ?></option>
+                                <option value="increase_by_fixed_value"><?php esc_html_e( 'Increase by fixed value(' . get_woocommerce_currency_symbol( get_option( 'woocommerce_currency' ) ) . ')', 'woocommerce-alidropship' ) ?></option>
                                 <option value="increase_by_percentage"><?php esc_html_e( 'Increase by percentage(%)', 'woocommerce-alidropship' ) ?></option>
                             </select>
                         </div>
@@ -2601,6 +2752,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 	public static function override_product_options() {
 		$all_options = array(
 			'override-keep-product'   => esc_html__( 'Keep Woo product', 'woocommerce-alidropship' ),
+			'override-link-only'      => esc_html__( 'Link existing variations only', 'woocommerce-alidropship' ),
 			'override-find-in-orders' => esc_html__( 'Find in unfulfilled orders', 'woocommerce-alidropship' ),
 			'override-title'          => esc_html__( 'Replace product title', 'woocommerce-alidropship' ),
 			'override-images'         => esc_html__( 'Replace product image and gallery', 'woocommerce-alidropship' ),
@@ -2667,7 +2819,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 	                    'override-product-options-button-override',
                     ) ) ) ?>" data-override_product_id="">
                             <span class="<?php echo esc_attr( self::set( 'override-product-text-override' ) ) ?>"><?php esc_html_e( 'Override', 'woocommerce-alidropship' ) ?></span><span
-                                class="<?php echo esc_attr( self::set( 'override-product-text-map-existing' ) ) ?>"><?php esc_html_e( 'Import & Map', 'woocommerce-alidropship' ) ?></span><span
+                                class="<?php echo esc_attr( self::set( 'override-product-text-map-existing' ) ) ?>"><?php esc_html_e( 'Import & Link', 'woocommerce-alidropship' ) ?></span><span
                                 class="<?php echo esc_attr( self::set( 'override-product-text-reimport' ) ) ?>"><?php esc_html_e( 'Reimport', 'woocommerce-alidropship' ) ?></span>
                         </span>
                     <span class="vi-ui button mini <?php echo esc_attr( self::set( array(
@@ -2955,8 +3107,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 				$pagination_html             = ob_get_clean();
 				$key                         = 0;
 				$currency                    = 'USD';
-				$woocommerce_currency        = get_woocommerce_currency();
-				$woocommerce_currency_symbol = get_woocommerce_currency_symbol();
+				$woocommerce_currency        = get_option( 'woocommerce_currency' );
+				$woocommerce_currency_symbol = get_woocommerce_currency_symbol( $woocommerce_currency );
 				$default_select_image        = self::$settings->get_params( 'product_gallery' );
 				$manage_stock                = self::$settings->get_params( 'manage_stock' );
 				$product_tags                = self::$settings->get_params( 'product_tags' );
@@ -3052,10 +3204,8 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 					self::$shipping_class_options = ob_get_clean();
 				}
 
-				while ( $the_query->have_posts() ) {
-					$the_query->the_post();
-					$product_id         = get_the_ID();
-					$product            = get_post();
+				foreach ( $the_query->posts as $product_id ) {
+					$product            = get_post( $product_id );
 					$title              = $product->post_title;
 					$description        = $product->post_content;
 					$sku                = get_post_meta( $product_id, '_vi_wad_sku', true );
@@ -3212,7 +3362,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 									) ) ) ?>"
                                           title="<?php esc_attr_e( 'Import this product to your WooCommerce store', 'woocommerce-alidropship' ) ?>"
                                           data-product_id="<?php echo esc_attr( $product_id ) ?>"
-                                          data-override_product_id="<?php echo esc_attr( $override_product_id ) ?>"><?php esc_html_e( 'Import & Map', 'woocommerce-alidropship' ) ?></span>
+                                          data-override_product_id="<?php echo esc_attr( $override_product_id ) ?>"><?php esc_html_e( 'Import & Link', 'woocommerce-alidropship' ) ?></span>
 									<?php
 								}
 								?>
@@ -3292,6 +3442,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 									?>
                                 </div>
                                 <div class="vi-ui bottom attached tab segment active <?php echo esc_attr( self::set( 'product-tab' ) ) ?>"
+                                     data-tab_name="product"
                                      data-tab="<?php echo esc_attr( 'product-' . $key ) ?>">
                                     <div class="field">
                                         <div class="fields">
@@ -3337,7 +3488,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
                                                                    name="<?php echo esc_attr( 'vi_wad_product[' . $product_id . '][sku]' ) ?>"
                                                                    class="<?php echo esc_attr( self::set( 'import-data-sku' ) ) ?>">
                                                         </div>
-                                                        <div class="field">
+                                                        <div class="field <?php echo esc_attr( self::set( 'import-data-status-container' ) ) ?>">
                                                             <label><?php esc_html_e( 'Product status', 'woocommerce-alidropship' ) ?></label>
                                                             <select
                                                                     name="<?php echo esc_attr( 'vi_wad_product[' . $product_id . '][status]' ) ?>"
@@ -3390,7 +3541,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
                                                     <div class="field">
                                                         <div class="equal width fields">
                                                             <div class="field">
-                                                                <label><?php esc_html_e( 'Map existing Woo product', 'woocommerce-alidropship' ) ?></label>
+                                                                <label><?php esc_html_e( 'Link existing Woo product', 'woocommerce-alidropship' ) ?></label>
                                                                 <select name="<?php echo esc_attr( 'vi_wad_product[' . $product_id . '][override_woo_id]' ) ?>"
                                                                         class="search-product <?php echo esc_attr( self::set( 'override-woo-id' ) ) ?>">
 																	<?php
@@ -3417,6 +3568,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
                                     </div>
                                 </div>
                                 <div class="vi-ui bottom attached tab segment <?php echo esc_attr( self::set( 'description-tab' ) ) ?>"
+                                     data-tab_name="description"
                                      data-tab="<?php echo esc_attr( 'description-' . $key ) ?>">
 									<?php
 									wp_editor( $description, self::set( 'product-description-' ) . $product_id, array(
@@ -3443,7 +3595,20 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 									?>
                                     <div class="vi-ui bottom attached tab segment <?php echo esc_attr( self::set( 'attributes-tab' ) ) ?>"
                                          data-tab="<?php echo esc_attr( 'attributes-' . $key ) ?>"
+                                         data-tab_name="attributes"
                                          data-product_id="<?php echo esc_attr( $product_id ) ?>">
+										<?php
+										/*
+										?>
+										<div class="vi-ui positive small message">
+											<?php esc_html_e( 'If the attribute values do not seem to have meaning, try: ', 'woocommerce-alidropship' ) ?>
+											<span data-product_id="<?php echo esc_attr( $product_id ) ?>"
+												  data-product_index="<?php echo esc_attr( $key ) ?>"
+												  class="vi-ui mini button inverted green <?php echo esc_attr( self::set( 'switch-product-attributes-values' ) ) ?>"><?php esc_html_e( 'Switch attribute values', 'woocommerce-alidropship' ) ?></span>
+										</div>
+										<?php
+										*/
+										?>
                                         <table class="vi-ui celled table">
                                             <thead>
                                             <tr>
@@ -3454,81 +3619,22 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
                                                 <th class="<?php echo esc_attr( self::set( 'attributes-attribute-col-action' ) ) ?>"><?php esc_html_e( 'Action', 'woocommerce-alidropship' ) ?></th>
                                             </tr>
                                             </thead>
-                                            <tbody class="ui sortable">
+                                            <tbody class="ui sortable <?php echo esc_attr( self::set( 'attributes-table-body' ) ) ?>">
 											<?php
-											$position = 1;
-											foreach ( $attributes as $attributes_key => $attribute ) {
-												$attribute_name = isset( $attribute['name'] ) ? $attribute['name'] : VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_attribute_name_by_slug( $attribute['slug'] );
-												?>
-                                                <tr class="<?php echo esc_attr( self::set( 'attributes-attribute-row' ) ) ?>">
-                                                    <td><?php echo esc_html( $position ) ?></td>
-                                                    <td><input type="text"
-                                                               class="<?php echo esc_attr( self::set( 'attributes-attribute-name' ) ) ?>"
-                                                               value="<?php echo esc_attr( $attribute_name ) ?>"
-                                                               data-attribute_name="<?php echo esc_attr( $attribute_name ) ?>"
-                                                               readonly
-                                                               name="<?php echo esc_attr( "vi_wad_product[{$product_id}][attributes][{$attributes_key}][name]" ) ?>">
-                                                    </td>
-                                                    <td>
-                                                        <span class="<?php echo esc_attr( self::set( 'attributes-attribute-slug' ) ) ?>"
-                                                              data-attribute_slug="<?php echo esc_attr( $attribute['slug'] ) ?>"><?php echo esc_html( $attribute['slug'] ) ?></span>
-                                                    </td>
-                                                    <td>
-                                                        <div class="<?php echo esc_attr( self::set( 'attributes-attribute-values' ) ) ?>">
-															<?php
-															foreach ( $attribute['values'] as $values_k => $values_v ) {
-																?>
-                                                                <input type="text"
-                                                                       class="<?php echo esc_attr( self::set( 'attributes-attribute-value' ) ) ?>"
-                                                                       value="<?php echo esc_attr( $values_v ) ?>"
-                                                                       data-attribute_value="<?php echo esc_attr( $values_v ) ?>"
-                                                                       readonly
-                                                                       name="<?php echo esc_attr( "vi_wad_product[{$product_id}][attributes][{$attributes_key}][values][{$values_k}]" ) ?>">
-																<?php
-															}
-															?>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <span class="vi-ui button mini icon <?php echo esc_attr( self::set( 'attributes-button-edit' ) ) ?>"
-                                                              title="<?php esc_attr_e( 'Edit this attribute', 'woocommerce-alidropship' ) ?>"><i
-                                                                    class="icon edit"></i></span>
-                                                        <span class="vi-ui button mini negative icon <?php echo esc_attr( self::set( 'attributes-attribute-remove' ) ) ?>"
-                                                              title="<?php esc_attr_e( 'Remove this attribute', 'woocommerce-alidropship' ) ?>"><i
-                                                                    class="icon trash"></i></span>
-                                                        <div class="<?php echo esc_attr( self::set( array(
-															'attributes-button-save-cancel',
-														) ) ) ?>">
-                                                            <span class="vi-ui button mini green icon <?php echo esc_attr( self::set( array(
-	                                                            'attributes-button-save',
-                                                            ) ) ) ?>"
-                                                                  title="<?php esc_attr_e( 'Save', 'woocommerce-alidropship' ) ?>"><i
-                                                                        class="icon save"></i></span>
-                                                            <span class="vi-ui button mini icon <?php echo esc_attr( self::set( array(
-																'attributes-button-cancel',
-															) ) ) ?>"
-                                                                  title="<?php esc_attr_e( 'Cancel', 'woocommerce-alidropship' ) ?>"><i
-                                                                        class="icon cancel"></i></span>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-												<?php
-												$position ++;
-											}
+											self::attributes_tab_html( $product_id, $attributes );
 											?>
                                             </tbody>
                                         </table>
                                     </div>
                                     <div class="vi-ui bottom attached tab segment <?php echo esc_attr( self::set( $variations_tab_class ) ) ?>"
                                          data-tab="<?php echo esc_attr( 'variations-' . $key ) ?>"
+                                         data-tab_name="variations"
                                          data-product_id="<?php echo esc_attr( $product_id ) ?>">
 										<?php
 										if ( count( $variations ) ) {
 											?>
-                                            <div class="vi-ui positive message">
-                                                <div class="header">
-                                                    <p><?php _e( 'You can edit product attributes on Attributes tab', 'woocommerce-alidropship' ) ?></p>
-                                                </div>
+                                            <div class="vi-ui positive small message">
+												<?php esc_html_e( 'You can edit product attributes on Attributes tab.', 'woocommerce-alidropship' ) ?>
                                             </div>
                                             <table class="form-table <?php echo esc_attr( self::set( array(
 												'variations-table',
@@ -3555,6 +3661,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 										'product-gallery',
 										'lazy-load-tab-data'
 									) ) ) ?>"
+                                         data-tab_name="gallery"
                                          data-tab="<?php echo esc_attr( 'gallery-' . $key ) ?>">
                                         <div class="segment ui-sortable">
 											<?php
@@ -3623,12 +3730,29 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 									<?php
 								}
 								if ( $video ) {
+									$video_tab = self::$settings->get_params( 'show_product_video_tab' ) ? esc_html__( 'Show', 'woocommerce-alidropship' ) : esc_html__( 'Hide', 'woocommerce-alidropship' );
 									?>
                                     <div class="vi-ui bottom attached tab segment <?php echo esc_attr( self::set( array(
 										'product-video',
 										'lazy-load-tab-data'
 									) ) ) ?>"
+                                         data-tab_name="video"
                                          data-tab="<?php echo esc_attr( 'video-' . $key ) ?>">
+                                        <table class="form-table">
+                                            <tbody>
+                                            <tr>
+                                                <th><?php esc_html_e( 'Product video tab', 'woocommerce-alidropship' ) ?>                                                </th>
+                                                <td>
+                                                    <select name="<?php echo esc_attr( 'vi_wad_product[' . $product_id . '][show_product_video_tab]' ) ?>"
+                                                            class="vi-ui dropdown <?php echo self::set( 'show_product_video_tab' ) ?>">
+                                                        <option value=""><?php printf( esc_html__( 'Global setting(%s)', 'woocommerce-alidropship' ), $video_tab ); ?></option>
+                                                        <option value="show"><?php esc_html_e( 'Show', 'woocommerce-alidropship' ); ?></option>
+                                                        <option value="hide"><?php esc_html_e( 'Hide', 'woocommerce-alidropship' ); ?></option>
+                                                    </select>
+                                                </td>
+                                            </tr>
+                                            </tbody>
+                                        </table>
                                         <div class="segment">
 											<?php echo do_shortcode( '[video src="' . esc_url( $video ) . '"]' ); ?>
                                         </div>
@@ -3663,6 +3787,24 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
                     <p>
 						<?php esc_html_e( 'No products found', 'woocommerce-alidropship' ) ?>
                     </p>
+					<?php
+					if ( $paged == 1 && ! $vi_wad_search_id && ! $keyword ) {
+						?>
+                        <p class="<?php echo esc_attr( self::set( 'download-chrome-extension' ) ) ?>"><?php printf( esc_html__( 'To import AliExpress products, you have to install and activate %s', 'woocommerce-alidropship' ), '<a href="https://downloads.villatheme.com/?download=alidropship-extension"
+                               target="_blank">WooCommerce AliExpress Dropshipping Extension</a>' ) ?></p>
+                        <p>
+							<?php VI_WOOCOMMERCE_ALIDROPSHIP_DATA::chrome_extension_buttons(); ?>
+                            <a target="_blank" href="https://www.aliexpress.com/"
+                               class="vi-ui positive button labeled icon <?php echo esc_attr( self::set( array(
+								   'import-aliexpress-products',
+								   'hidden'
+							   ) ) ) ?>"><i
+                                        class="external icon"></i><?php esc_html_e( 'Import AliExpress Products', 'woocommerce-alidropship' ) ?>
+                            </a>
+                        </p>
+						<?php
+					}
+					?>
                 </form>
 				<?php
 				$pagination_html = ob_get_clean();
@@ -4435,7 +4577,16 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 		$video      = '';
 		$video_info = get_post_meta( $product_id, '_vi_wad_video', true );
 		if ( ! empty( $video_info['ali_member_id'] ) && ! empty( $video_info['media_id'] ) ) {
-			$video = "https://cloud.video.taobao.com/play/u/{$video_info['ali_member_id']}/p/1/e/6/t/10301/{$video_info['media_id']}.mp4";
+			if ( ! empty( $video_info['url'] ) ) {
+				$video = esc_url_raw( $video_info['url'] );
+			} else {
+				$video_link = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_valid_aliexpress_video_link( $video_info );
+				if ( $video_link ) {
+					$video             = $video_link;
+					$video_info['url'] = $video;
+					update_post_meta( $product_id, '_vi_wad_video', $video_info );
+				}
+			}
 		}
 
 		return $video;
@@ -4524,5 +4675,67 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Import_List {
 
 	private static function check_ajax_referer() {
 		VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Settings::check_ajax_referer( 'woocommerce-alidropship-import-list' );
+	}
+
+	private static function attributes_tab_html( $product_id, $attributes ) {
+		$position = 1;
+		foreach ( $attributes as $attributes_key => $attribute ) {
+			$attribute_name = isset( $attribute['name'] ) ? $attribute['name'] : VI_WOOCOMMERCE_ALIDROPSHIP_DATA::get_attribute_name_by_slug( $attribute['slug'] );
+			?>
+            <tr class="<?php echo esc_attr( self::set( 'attributes-attribute-row' ) ) ?>">
+                <td><?php echo esc_html( $position ) ?></td>
+                <td><input type="text"
+                           class="<?php echo esc_attr( self::set( 'attributes-attribute-name' ) ) ?>"
+                           value="<?php echo esc_attr( $attribute_name ) ?>"
+                           data-attribute_name="<?php echo esc_attr( $attribute_name ) ?>"
+                           readonly
+                           name="<?php echo esc_attr( "vi_wad_product[{$product_id}][attributes][{$attributes_key}][name]" ) ?>">
+                </td>
+                <td>
+                    <span class="<?php echo esc_attr( self::set( 'attributes-attribute-slug' ) ) ?>"
+                          data-attribute_slug="<?php echo esc_attr( $attribute['slug'] ) ?>"><?php echo esc_html( $attribute['slug'] ) ?></span>
+                </td>
+                <td>
+                    <div class="<?php echo esc_attr( self::set( 'attributes-attribute-values' ) ) ?>">
+						<?php
+						foreach ( $attribute['values'] as $values_k => $values_v ) {
+							?>
+                            <input type="text"
+                                   class="<?php echo esc_attr( self::set( 'attributes-attribute-value' ) ) ?>"
+                                   value="<?php echo esc_attr( $values_v ) ?>"
+                                   data-attribute_value="<?php echo esc_attr( $values_v ) ?>"
+                                   readonly
+                                   name="<?php echo esc_attr( "vi_wad_product[{$product_id}][attributes][{$attributes_key}][values][{$values_k}]" ) ?>">
+							<?php
+						}
+						?>
+                    </div>
+                </td>
+                <td>
+                    <span class="vi-ui button mini icon <?php echo esc_attr( self::set( 'attributes-button-edit' ) ) ?>"
+                          title="<?php esc_attr_e( 'Edit this attribute', 'woocommerce-alidropship' ) ?>"><i
+                                class="icon edit"></i></span>
+                    <span class="vi-ui button mini negative icon <?php echo esc_attr( self::set( 'attributes-attribute-remove' ) ) ?>"
+                          title="<?php esc_attr_e( 'Remove this attribute', 'woocommerce-alidropship' ) ?>"><i
+                                class="icon trash"></i></span>
+                    <div class="<?php echo esc_attr( self::set( array(
+						'attributes-button-save-cancel',
+					) ) ) ?>">
+                        <span class="vi-ui button mini green icon <?php echo esc_attr( self::set( array(
+	                        'attributes-button-save',
+                        ) ) ) ?>"
+                              title="<?php esc_attr_e( 'Save', 'woocommerce-alidropship' ) ?>"><i
+                                    class="icon save"></i></span>
+                        <span class="vi-ui button mini icon <?php echo esc_attr( self::set( array(
+							'attributes-button-cancel',
+						) ) ) ?>"
+                              title="<?php esc_attr_e( 'Cancel', 'woocommerce-alidropship' ) ?>"><i
+                                    class="icon cancel"></i></span>
+                    </div>
+                </td>
+            </tr>
+			<?php
+			$position ++;
+		}
 	}
 }

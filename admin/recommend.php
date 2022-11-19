@@ -63,7 +63,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Recommend {
 				'slug'                => 'product-variations-swatches-for-woocommerce',
 				'pro'                 => 'woocommerce-product-variations-swatches',
 				'name'                => 'Product Variations Swatches for WooCommerce',
-				'message_not_install' => __( 'Need a variations swatches plugin that works perfectly with Dropshipping and Fulfillment for AliExpress and WooCommerce? <strong>Product Variations Swatches for WooCommerce</strong> is what you need.', 'woocommerce-alidropship' ),
+				'message_not_install' => __( 'Need a variations swatches plugin that works perfectly with ALD - AliExpress Dropshipping and Fulfillment for WooCommerce? <strong>Product Variations Swatches for WooCommerce</strong> is what you need.', 'woocommerce-alidropship' ),
 				'message_not_active'  => __( '<strong>Product Variations Swatches for WooCommerce</strong> is currently inactive, this prevents variable products from displaying beautifully.', 'woocommerce-alidropship' ),
 			),
 		);
@@ -94,7 +94,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Recommend {
 	public function admin_enqueue_scripts() {
 		global $pagenow;
 		$page = isset( $_REQUEST['page'] ) ? wp_unslash( sanitize_text_field( $_REQUEST['page'] ) ) : '';
-		if ( $pagenow === 'admin.php' && $page === 'woo-ali-recommend' ) {
+		if ( $pagenow === 'admin.php' && $page === 'woocommerce-alidropship-recommend' ) {
 			wp_dequeue_style( 'eopa-admin-css' );
 			wp_enqueue_style( 'vi-woocommerce-alidropship-form', VI_WOOCOMMERCE_ALIDROPSHIP_CSS . 'form.min.css' );
 			wp_enqueue_style( 'vi-woocommerce-alidropship-table', VI_WOOCOMMERCE_ALIDROPSHIP_CSS . 'table.min.css' );
@@ -192,11 +192,11 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_Admin_Recommend {
 	 * Register a custom menu page.
 	 */
 	public function menu_page() {
-		$menu_slug = 'woo-ali-recommend';
+		$menu_slug = 'woocommerce-alidropship-recommend';
 		add_submenu_page(
 			'woocommerce-alidropship',
-			esc_html__( 'Recommended plugins for Dropshipping and Fulfillment for AliExpress and WooCommerce', 'woocommerce-alidropship' ),
-			esc_html__( 'Recommended plugins', 'woocommerce-alidropship' ),
+			esc_html__( 'Recommended plugins for ALD - AliExpress Dropshipping and Fulfillment for WooCommerce', 'woocommerce-alidropship' ),
+			esc_html__( 'Recommended Plugins', 'woocommerce-alidropship' ),
 			apply_filters( 'vi_wad_admin_sub_menu_capability', 'manage_options', $menu_slug ),
 			$menu_slug,
 			array( $this, 'page_callback' )

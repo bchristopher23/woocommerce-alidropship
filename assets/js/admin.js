@@ -158,101 +158,117 @@ jQuery(document).ready(function ($) {
         return format_error;
     }
 
-    $(".search-product").select2({
-        closeOnSelect: false,
-        placeholder: "Please enter product title to search",
-        ajax: {
-            url: "admin-ajax.php?action=wad_search_product&_vi_wad_ajax_nonce=" + _vi_wad_ajax_nonce,
-            dataType: 'json',
-            type: "GET",
-            quietMillis: 50,
-            delay: 250,
-            data: function (params) {
-                return {
-                    keyword: params.term,
-                    p_id: $(this).closest('td').data('id')
-                };
-            },
-            processResults: function (data) {
-                return {
-                    results: data
-                };
-            }
-        },
-        escapeMarkup: function (markup) {
-            return markup;
-        }, // let our custom formatter work
-        minimumInputLength: 1
-    });
-    /*Search categories*/
-    $('.search-category').select2({
-        closeOnSelect: false,
-        placeholder: "Please enter category name to search",
-        ajax: {
-            url: "admin-ajax.php?action=wad_search_cate&_vi_wad_ajax_nonce=" + _vi_wad_ajax_nonce,
-            dataType: 'json',
-            type: "GET",
-            quietMillis: 50,
-            delay: 250,
-            data: function (params) {
-                return {
-                    keyword: params.term
-                };
-            },
-            processResults: function (data) {
-                return {
-                    results: data
-                };
-            },
-            cache: true
-        },
-        escapeMarkup: function (markup) {
-            return markup;
-        }, // let our custom formatter work
-        minimumInputLength: 1
-    });
-    /*Search tags*/
-    $('.search-tags').select2({
-        closeOnSelect: false,
-        placeholder: "Please enter tag to search",
-        ajax: {
-            url: "admin-ajax.php?action=wad_search_tags&_vi_wad_ajax_nonce=" + _vi_wad_ajax_nonce,
-            dataType: 'json',
-            type: "GET",
-            quietMillis: 50,
-            delay: 250,
-            data: function (params) {
-                return {
-                    keyword: params.term
-                };
-            },
-            processResults: function (data) {
-                return {
-                    results: data
-                };
-            },
-            cache: true
-        },
-        escapeMarkup: function (markup) {
-            return markup;
-        }, // let our custom formatter work
-        minimumInputLength: 1
-    });
+    function init_select2($ele, type) {
+        switch (type) {
+            case 'product':
+                $ele.select2({
+                    closeOnSelect: false,
+                    placeholder: "Please enter product title to search",
+                    ajax: {
+                        url: "admin-ajax.php?action=wad_search_product&_vi_wad_ajax_nonce=" + _vi_wad_ajax_nonce,
+                        dataType: 'json',
+                        type: "GET",
+                        quietMillis: 50,
+                        delay: 250,
+                        data: function (params) {
+                            return {
+                                keyword: params.term,
+                                p_id: $(this).closest('td').data('id')
+                            };
+                        },
+                        processResults: function (data) {
+                            return {
+                                results: data
+                            };
+                        }
+                    },
+                    escapeMarkup: function (markup) {
+                        return markup;
+                    }, // let our custom formatter work
+                    minimumInputLength: 1
+                });
+                break;
+            case 'category':
+                $ele.select2({
+                    closeOnSelect: false,
+                    placeholder: "Please enter category name to search",
+                    ajax: {
+                        url: "admin-ajax.php?action=wad_search_cate&_vi_wad_ajax_nonce=" + _vi_wad_ajax_nonce,
+                        dataType: 'json',
+                        type: "GET",
+                        quietMillis: 50,
+                        delay: 250,
+                        data: function (params) {
+                            return {
+                                keyword: params.term
+                            };
+                        },
+                        processResults: function (data) {
+                            return {
+                                results: data
+                            };
+                        },
+                        cache: true
+                    },
+                    escapeMarkup: function (markup) {
+                        return markup;
+                    }, // let our custom formatter work
+                    minimumInputLength: 1
+                });
+                break;
+            case 'tag':
+                $ele.select2({
+                    closeOnSelect: false,
+                    placeholder: "Please enter tag to search",
+                    ajax: {
+                        url: "admin-ajax.php?action=wad_search_tags&_vi_wad_ajax_nonce=" + _vi_wad_ajax_nonce,
+                        dataType: 'json',
+                        type: "GET",
+                        quietMillis: 50,
+                        delay: 250,
+                        data: function (params) {
+                            return {
+                                keyword: params.term
+                            };
+                        },
+                        processResults: function (data) {
+                            return {
+                                results: data
+                            };
+                        },
+                        cache: true
+                    },
+                    escapeMarkup: function (markup) {
+                        return markup;
+                    }, // let our custom formatter work
+                    minimumInputLength: 1
+                });
+                break;
+            default:
+        }
+    }
 
+    /*Search products*/
+    init_select2($(".search-product"), 'product');
+    /*Search categories*/
+    init_select2($(".search-category"), 'category');
+    /*Search tags*/
+    init_select2($(".search-tags"), 'tag');
     /*Add row*/
-    $('.vi-wad-price-rule-add').on('click', function () {
-        let $rows = $('.vi-wad-price-rule-row'),
+    $(document).on('click', '.vi-wad-price-rule-add', function () {
+        let $button = $(this), $wrap = $button.closest('.vi-wad-price-rule-wrapper'),
+            $rows = $wrap.find('.vi-wad-price-rule-row'),
             $lastRow = $rows.last(),
             $newRow = $lastRow.clone();
         $newRow.find('.vi-wad-price-from').val('');
         $newRow.find('.vi-wad-price-to').val('');
         $newRow.find('.vi-wad-plus-value-type').dropdown();
-        $('.vi-wad-price-rule-container').append($newRow);
+        $wrap.find('.vi-wad-price-rule-container').append($newRow);
     });
 
     /*remove row*/
     $(document).on('click', '.vi-wad-price-rule-remove', function () {
-        let $button = $(this), $rows = $('.vi-wad-price-rule-row'),
+        let $button = $(this), $rows = $button.closest('.price-rule').find('.vi-wad-price-rule-row'),
             $row = $button.closest('.vi-wad-price-rule-row');
         if ($rows.length > 1) {
             if (confirm('Do you want to remove this row?')) {
@@ -263,10 +279,7 @@ jQuery(document).ready(function ($) {
             }
         }
     });
-    $(document).on('change', 'select[name="wad_plus_value_type[]"]', function () {
-        change_price_label($(this));
-    });
-    $(document).on('change', 'select[name="wad_price_default[plus_value_type]"]', function () {
+    $(document).on('change', '.vi-wad-plus-value-type>select', function () {
         change_price_label($(this));
     });
 
@@ -323,6 +336,38 @@ jQuery(document).ready(function ($) {
 
 //String replace
 
+    $('.add-specification-replace-rule').on('click', function () {
+        let clone = `<tr class="clone-source">
+                        <td>
+                            <input type="text" name="wad_specification_replace[from_name][]">
+                        </td>
+                         <td>
+                            <div class="vi-wad-specification-replace-sensitive-container">
+                            <input type="checkbox" value="1" class="vi-wad-specification-replace-sensitive">                            
+                            <input type="hidden" class="vi-wad-specification-replace-sensitive-value" value="" name="wad_specification_replace[sensitive][]">
+                            </div>
+                        </td>
+                        <td>
+                            <input type="text" name="wad_specification_replace[to_name][]" placeholder="Leave blank to delete matches">
+                        </td>
+                        <td>
+                            <input type="text" name="wad_specification_replace[new_value][]" placeholder="{old_value}">
+                        </td>
+                        <td>
+                            <button type="button" class="vi-ui button negative tiny delete-specification-replace-rule">
+                                <i class="dashicons dashicons-trash "></i>
+                            </button>
+                        </td>
+                    </tr>`;
+
+        $('.specification-replace tbody').append(clone);
+    });
+    $('body').on('change', '.vi-wad-specification-replace-sensitive', function () {
+        let $container = $(this).closest('.vi-wad-specification-replace-sensitive-container');
+        let $sensitive_value = $container.find('.vi-wad-specification-replace-sensitive-value');
+        let sensitive_value = $(this).prop('checked') ? 1 : '';
+        $sensitive_value.val(sensitive_value);
+    });
     $('.add-string-replace-rule').on('click', function () {
         let clone = `<tr class="clone-source">
                         <td>
@@ -353,7 +398,7 @@ jQuery(document).ready(function ($) {
         let sensitive_value = $(this).prop('checked') ? 1 : '';
         $sensitive_value.val(sensitive_value);
     });
-    $('body').on('click', '.delete-string-replace-rule', function () {
+    $('body').on('click', '.delete-string-replace-rule,.delete-specification-replace-rule', function () {
         if (confirm('Remove this item?')) {
             $(this).closest('.clone-source').remove();
         }
@@ -362,10 +407,10 @@ jQuery(document).ready(function ($) {
     $('.add-string-replace-rule-url').on('click', function () {
         let clone = `<tr class="clone-source">
                         <td>
-                            <input type="text" value="" name="vi-wad-carrier_url_replaces[from_string][]">
+                            <input type="text" value="" name="wad_carrier_url_replaces[from_string][]">
                         </td>
                         <td>
-                            <input type="text" placeholder="URL of a replacement carrier" value="" name="vi-wad-carrier_url_replaces[to_string][]">
+                            <input type="text" placeholder="URL of a replacement carrier" value="" name="wad_carrier_url_replaces[to_string][]">
                         </td>
                         <td>
                             <button type="button" class="vi-ui button negative tiny delete-string-replace-rule">
@@ -379,16 +424,16 @@ jQuery(document).ready(function ($) {
     $('.add-string-replace-rule-name').on('click', function () {
         let clone = `<tr class="clone-source">
                         <td>
-                            <input type="text" value="" name="vi-wad-carrier_name_replaces[from_string][]">
+                            <input type="text" value="" name="wad_carrier_name_replaces[from_string][]">
                         </td>
                          <td>
                             <div class="vi-wad-string-replace-sensitive-container">
                                 <input type="checkbox" value="1" class="vi-wad-string-replace-sensitive">
-                                <input type="hidden" class="vi-wad-string-replace-sensitive-value" value="" name="vi-wad-carrier_name_replaces[sensitive][]">
+                                <input type="hidden" class="vi-wad-string-replace-sensitive-value" value="" name="wad_carrier_name_replaces[sensitive][]">
                             </div>
                         </td>
                         <td>
-                            <input type="text" placeholder="Leave blank to delete matches" value="" name="vi-wad-carrier_name_replaces[to_string][]">
+                            <input type="text" placeholder="Leave blank to delete matches" value="" name="wad_carrier_name_replaces[to_string][]">
                         </td>                                       
                         <td>
                             <button type="button" class="vi-ui button negative tiny delete-string-replace-rule">
@@ -1000,8 +1045,6 @@ jQuery(document).ready(function ($) {
         if (message) {
             $message.html(`<div class="vi-ui yellow message"><ul class="list">${message}</ul></div>`);
         }
-        console.log(range_error)
-        console.log(overlap_error)
         return (range_error + overlap_error + rule_error);
     }
 
@@ -1079,11 +1122,23 @@ jQuery(document).ready(function ($) {
     }
 
     $('.vi-wad-override-keep-product').on('change', function () {
-        let $override_find_in_orders = $('.vi-wad-override-find-in-orders').closest('tr');
+        let $override_find_in_orders = $('.vi-wad-override-find-in-orders').closest('tr'),
+            $override_link_only = $('.vi-wad-override-link-only').closest('tr');
         if ($(this).prop('checked')) {
             $override_find_in_orders.fadeOut(200);
+            $override_link_only.fadeIn(200);
         } else {
             $override_find_in_orders.fadeIn(200);
+            $override_link_only.fadeOut(200);
+        }
+    }).trigger('change');
+
+    $('.vi-wad-update-product-price').on('change', function () {
+        let $sync_price_dep = $('.vi-wad-update-product-price-dependency');
+        if ($(this).prop('checked')) {
+            $sync_price_dep.fadeIn(200);
+        } else {
+            $sync_price_dep.fadeOut(200);
         }
     }).trigger('change');
 
@@ -1098,4 +1153,84 @@ jQuery(document).ready(function ($) {
             $video_tab_priority.fadeOut(200);
         }
     }).trigger('change');
+
+    /*Custom rules*/
+    $('.vi-wad-custom-price-rule-remove').on('click', function (e) {
+        e.stopPropagation();
+        handle_custom_rule_remove_button($(this))
+    });
+
+    function handle_custom_rule_remove_button($button) {
+        let $rule = $button.closest('.vi-wad-custom-price-rule-wrap');
+        if (confirm('Delete this rule?')) {
+            $rule.fadeOut(300);
+            setTimeout(function () {
+                $rule.remove();
+            }, 300)
+        }
+    }
+
+    $('.vi-wad-custom-price-rule-add').on('click', function () {
+        let $button = $(this),
+            $rules_wrap = $button.closest('.vi-wad-custom-price-rules-wrap'),
+            $rules = $rules_wrap.find('.vi-wad-custom-price-rule-wrap'),
+            $lastRow = $rules.last(),
+            $newRule = $lastRow.clone();
+        if ($rules.length > 0) {
+            add_custom_rule($newRule, $rules_wrap)
+        } else {
+            if (!$button.hasClass('loading')) {
+                $button.addClass('loading');
+                $.ajax({
+                    url: vi_wad_admin_settings_params.url,
+                    type: 'GET',
+                    dataType: 'JSON',
+                    data: {
+                        action: 'wad_get_custom_rule_html',
+                        _vi_wad_ajax_nonce: _vi_wad_ajax_nonce,
+                    },
+                    success: function (response) {
+                        if (response.status === 'success') {
+                            $newRule = $(response.data);
+                            add_custom_rule($newRule, $rules_wrap);
+                        }
+                    },
+                    error: function (err) {
+
+                    },
+                    complete: function () {
+                        $button.removeClass('loading');
+                    }
+                })
+            }
+        }
+
+    });
+
+    function add_custom_rule($newRule, $rules_wrap) {
+        let $price_rules = $newRule.find('.vi-wad-price-rule-row');
+        if ($price_rules.length > 1) {
+            for (let i = 1; i < $price_rules.length; i++) {
+                $price_rules.eq(i).remove();
+            }
+        }
+        $newRule.find('.vi-wad-price-from').val('');
+        $newRule.find('.vi-wad-price-to').val('');
+        $newRule.find('.vi-wad-plus-value-type').dropdown();
+        $newRule.find('.vi-ui.accordion').vi_accordion('refresh');
+        $newRule.find('.select2-container').remove();
+        init_select2($newRule.find('.search-product'), 'product');
+        init_select2($newRule.find('.search-category'), 'category');
+        let id = new Date().getTime(), custom_rule_id = $newRule.data('custom_rule_id');
+        $newRule.data('custom_rule_id', id);
+        $newRule.find('[name^="wad_"]').map(function () {
+            let $ele = $(this), old_name = $ele.attr('name');
+            $ele.attr('name', old_name.replace(custom_rule_id, id));
+        });
+        $newRule.find('.vi-wad-custom-price-rule-remove').on('click', function (e) {
+            e.stopPropagation();
+            handle_custom_rule_remove_button($(this))
+        });
+        $rules_wrap.find('.vi-wad-custom-price-rules-container').append($newRule);
+    }
 });

@@ -52,6 +52,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_BACKGROUND_ALI_API_GET_PRODUCT_DATA extends WP_
 							$shipping_info = get_post_meta( $value['id'], '_vi_wad_shipping_info', true );
 							if ( $shipping_info && ! empty( $shipping_info['country'] ) ) {
 								if ( $shipping_info['country'] !== 'US' ) {//a lot of products have different IDs for US and the API returns empty data
+									//if product_id is for US version, ship_to_country will cause API to return empty data
 									$param['ship_to_country'] = VI_WOOCOMMERCE_ALIDROPSHIP_Admin_API::filter_country( $shipping_info['country'] );
 								}
 							}
@@ -83,7 +84,7 @@ class VI_WOOCOMMERCE_ALIDROPSHIP_BACKGROUND_ALI_API_GET_PRODUCT_DATA extends WP_
 					if ( $get_sign['status'] === 'success' ) {
 						$public_params['sign']      = $get_sign['data']['data'];
 						$public_params['timestamp'] = date( 'Y-m-d H:i:s', $get_sign['data']['timestamp'] );
-						$url                        = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::ali_ds_get_url( true );
+						$url                        = VI_WOOCOMMERCE_ALIDROPSHIP_DATA::ali_ds_get_url( true, ! $settings->get_params( 'update_product_http_only' ) );
 						$url                        = add_query_arg( array_map( 'urlencode', $public_params ), $url );
 						$separator                  = urlencode( '{villatheme}' );
 						add_filter( 'http_request_timeout', array(

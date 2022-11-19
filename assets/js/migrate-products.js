@@ -2,7 +2,8 @@ jQuery(document).ready(function ($) {
     'use strict';
     $('.vi-ui.dropdown').dropdown();
     $('#vi-wad-product-source').on('change', function () {
-        if ($(this).val() === 'ali2woo') {
+        let product_source = $(this).val();
+        if (product_source === 'ali2woo' || product_source === 'alidropship_woo') {
             $('#vi-wad-product-source-meta').closest('.vi-ui.input').fadeOut(200);
         } else {
             $('#vi-wad-product-source-meta').closest('.vi-ui.input').fadeIn(200);
@@ -39,18 +40,23 @@ jQuery(document).ready(function ($) {
                 max_page: max_page,
             },
             success: function (response) {
-                if (response.status === 'success') {
-                    $progress.progress('set percent', parseInt(response.percent));
-                    if (page < parseInt(response.page)) {
-                        migrate_products(response.page, response.max_page, $progress);
-                    } else {
-                        $progress.progress('set label', response.message ? response.message : 'Completed').progress('complete');
-                        if (response.message) {
-                            villatheme_admin_show_message(response.message, 'success', '', false, 5000);
+                switch (response.status) {
+                    case 'success':
+                        $progress.progress('set percent', parseInt(response.percent));
+                        if (page < parseInt(response.page)) {
+                            migrate_products(response.page, response.max_page, $progress);
+                        } else {
+                            $progress.progress('set label', response.message ? response.message : 'Completed').progress('complete');
+                            if (response.message) {
+                                villatheme_admin_show_message(response.message, 'success', '', false, 5000);
+                            }
                         }
-                    }
-                } else {
-                    $progress.progress('set label', response.message ? response.message : vi_wad_params_admin_migrate_products.i18n_error).progress('set error');
+                        break;
+                    case 'retry':
+                        migrate_products(response.page, response.max_page, $progress);
+                        break;
+                    default:
+                        $progress.progress('set label', response.message ? response.message : vi_wad_params_admin_migrate_products.i18n_error).progress('set error');
                 }
             },
             error: function (err) {

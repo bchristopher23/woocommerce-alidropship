@@ -1,5 +1,20 @@
 jQuery(document).ready(function ($) {
     'use strict';
+    $('.vi-wad-copy-secretkey').on('click', function () {
+        let $container = $(this).closest('td');
+        $container.find('.vi-wad-secret-key').select();
+        $container.find('.vi-wad-copy-secretkey-success').remove();
+        document.execCommand('copy');
+        let $result_icon = $('<span class="vi-wad-copy-secretkey-success dashicons dashicons-yes" title="Copied to Clipboard"></span>');
+        $container.append($result_icon);
+        $result_icon.fadeOut(10000);
+        setTimeout(function () {
+            $result_icon.remove();
+        }, 5000);
+    });
+    $('.vi-wad-secret-key').on('click', function () {
+        $(this).closest('.input').find('.vi-wad-copy-secretkey').click();
+    });
     let _vi_wad_ajax_nonce = vi_wad_setup_wizard_params._vi_wad_ajax_nonce;
     $('select.vi-ui.dropdown').dropdown();
     /*Search categories*/
@@ -37,7 +52,7 @@ jQuery(document).ready(function ($) {
         $newRow.find('.vi-wad-price-from').val('');
         $newRow.find('.vi-wad-price-to').val('');
         $newRow.find('.vi-wad-plus-value-type').dropdown();
-        $('.vi-wad-price-rule-container').append($newRow);
+        $(this).closest('.vi-wad-price-rule-wrapper').find('.vi-wad-price-rule-container').append($newRow);
     });
 
     /*remove last row*/
@@ -53,14 +68,13 @@ jQuery(document).ready(function ($) {
             }
         }
     });
-
+    let search_params = new URLSearchParams(window.location.href), setup_step = search_params.get('step');
     $('.vi-ui.button.primary').on('click', function () {
-        if ($('.vi-wad-secret-key').val() == '') {
-            alert('Secret key cannot be empty.');
-            return false;
-        } else if (!$('#vi-wad-import-currency-rate').val()) {
-            alert('Please enter Import products currency exchange rate');
-            return false;
+        if (setup_step == 2) {
+            if (!$('#vi-wad-import-currency-rate').val()) {
+                alert('Please enter Import products currency exchange rate');
+                return false;
+            }
         }
     });
     $(document).on('change', 'select[name="wad_plus_value_type[]"]', function () {
@@ -91,4 +105,12 @@ jQuery(document).ready(function ($) {
         }
     }
 
+    $('#vi-wad-show-shipping-option').on('change', function () {
+        let $dependency = $('#vi-wad-shipping-cost-after-price-rules').closest('tr');
+        if ($(this).prop('checked')) {
+            $dependency.fadeIn(200);
+        } else {
+            $dependency.fadeOut(200);
+        }
+    }).trigger('change');
 });
